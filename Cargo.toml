@@ -1,0 +1,33 @@
+cargo-features = ["profile-rustflags"]
+
+[package]
+name = "NativeShapeUtils"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[profile.release]
+opt-level = 3
+overflow-checks = false
+lto = true
+codegen-units = 1
+debug = true
+panic="abort"
+rustflags = ["-C", "target-cpu=native"]
+
+
+[dependencies]
+portable-atomic = { version = "1", default-features = false, features = ["float"]}
+pheap = "0.3.0"
+radix-heap = "0.4.2"
+jni = "0.21.1"
+rayon = "1.10.0"
+static_init = "1.0.3"
+kiss3d = "0.35.0"
+heapless = "0.8.0"
+crossbeam = "0.8.4"
+
+[lib]
+name = "NativeShapeUtils"
+crate-type = ["cdylib"]
+test = true
