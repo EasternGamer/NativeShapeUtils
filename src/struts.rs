@@ -1,5 +1,5 @@
 use core::slice::SlicePattern;
-use std::cell::UnsafeCell;
+use std::cell::{Cell, UnsafeCell};
 use std::fmt::{Display, Formatter};
 use std::mem::MaybeUninit;
 use std::ops::{Div, Sub};
@@ -20,122 +20,62 @@ pub trait SimdPosition {
 pub trait HasIndex {
     fn index(&self) -> usize;
 }
-
-#[derive(Copy, Clone)]
-pub struct NodeData {
-    pub cost : f64,
-    pub previous : u32,
-    pub connection_len: u16,
-    pub visited : bool
+#[repr(transparent)]
+pub struct SuperCell<T : ?Sized> {
+    value : UnsafeCell<T>
 }
 
-pub struct Node<T> {
-    pub value : T,
-    pub connections : Box<[Connection]>,
-    pub node_type : UnsafeCell<NodeType>,
-    pub flag: u32,
-    data : AtomicCell<NodeData>,
-}
-impl <T : SimdPosition> SimdPosition for Node<T> {
+impl <T> SuperCell<T> {
     #[inline]
-    fn position(&self) -> &Simd<f64, 2> {
-        self.value.position()
-    }
-}
-impl <T: HasIndex> HasIndex for Node<T> {
-    fn index(&self) -> usize {
-        self.value.index()
-    }
-}
-
-impl <T : HasIndex> Node<T> {
-    #[inline]
-    pub fn new(value : T, flag : u32, connections: Box<[Connection]>) -> Self {
+    pub const fn new(value : T) -> Self {
         Self {
-            value,
-            connections,
-            node_type : UnsafeCell::new(NodeType::Normal),
-            flag,
-            data : AtomicCell::new(
-                NodeData {
-                    cost : f64::MAX,
-                    previous : u32::MAX,
-                    connection_len: u16::MAX,
-                    visited : false
-                }
-            )
+            value : UnsafeCell::new(value)
         }
     }
-
-    #[inline(always)]
-    pub fn get_connections(&self) -> &'_[Connection] {
-        self.connections.as_slice()
+    #[inline]
+    pub fn get_mut(&self) -> &mut T {
+        unsafe { &mut (*self.value.get()) }
     }
-    #[inline(always)]
-    pub fn get_connection_len(&self) -> u16 {
-        self.data.load().connection_len
-    }
-    
-    #[inline(always)]
-    pub fn check_updated_and_save(&self, new_cost : f64, index : u32, length : u16) -> bool {
-        if self.data.load().cost > new_cost {
-            self.data.store(NodeData {
-                cost: new_cost,
-                previous : index,
-                connection_len : length,
-                visited : true
-            });
-            return true;
-        }
-        false
-    }
-    #[inline(always)]
-    pub fn set_cost(&self, new_cost : f64) {
-        let previous = self.data.load();
-        self.data.store(NodeData {
-            cost: new_cost,
-            previous: previous.previous,
-            connection_len: previous.connection_len,
-            visited : previous.visited
-        })
-    }
-    #[inline(always)]
-    pub fn get_cost(&self) -> f64 {
-        self.data.load().cost
-    }
-    #[inline(always)]
-    pub fn is_lower_cost(&self, new_cost : f64) -> bool {
-        self.get_cost() < new_cost
-    }
-    #[inline(always)]
-    pub fn has_visited(&self) -> bool {
-        self.data.load().visited
-    }
-    #[inline(always)]
-    pub fn get_previous(&self) -> u32 {
-        self.data.load().previous
-    }
-    #[inline(always)]
-    pub fn reset(&self) {
-        self.data.store(NodeData {
-            cost: f64::MAX,
-            previous : u32::MAX,
-            connection_len : 0u16,
-            visited : false
-        });
+    #[inline]
+    pub fn get(&self) -> &T {
+        unsafe { &(*self.value.get()) }
     }
 }
-unsafe impl <T> Send for Node<T> {}
-unsafe impl <T> Sync for Node<T> {}
-
-#[derive(Clone)]
-pub struct Connection {
-    pub index : u32,
-    pub cost : f64
+impl<T> SuperCell<[T]> {
+    /// Returns a `&[SuperCell<T>]` from a `&SuperCell<[T]>`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    ///
+    /// let slice: &mut [i32] = &mut [1, 2, 3];
+    /// let cell_slice: &SuperCell<[i32]> = SuperCell::from_mut(slice);
+    /// let slice_cell: &[SuperCell<i32>] = cell_slice.as_slice_of_cells();
+    ///
+    /// assert_eq!(slice_cell.len(), 3);
+    /// ```
+    pub fn as_slice_of_cells(&self) -> &[SuperCell<T>] {
+        // SAFETY: `Cell<T>` has the same memory layout as `T`.
+        unsafe { &*(self as *const SuperCell<[T]> as *const [SuperCell<T>]) }
+    }
 }
 
-unsafe impl Send for Connection {}
-unsafe impl Sync for Connection {}
+impl<T, const N: usize> SuperCell<[T; N]> {
+    /// Returns a `&[SuperCell<T>; N]` from a `&SuperCell<[T; N]>`
+    ///
+    /// # Examples
+    ///
+    /// ```
+    ///
+    /// let mut array: [i32; 3] = [1, 2, 3];
+    /// let cell_array: &SuperCell<[i32; 3]> = SuperCell::from_mut(&mut array);
+    /// let array_cell: &[SuperCell<i32>; 3] = cell_array.as_array_of_cells();
+    /// ```
+    pub fn as_array_of_cells(&self) -> &[SuperCell<T>; N] {
+        // SAFETY: `Cell<T>` has the same memory layout as `T`.
+        unsafe { &*(self as *const SuperCell<[T; N]> as *const [SuperCell<T>; N]) }
+    }
+}
 
 #[derive(Clone)]
 pub struct RoadNode {

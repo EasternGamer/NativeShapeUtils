@@ -1,9 +1,14 @@
-use std::cell::UnsafeCell;
+use core::slice::SlicePattern;
 use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut};
-#[derive(Debug)]
+
+use rayon::slice::ParallelSliceMut;
+
+use crate::struts::SuperCell;
+
 pub struct ParallelList<T> {
-    pub data : UnsafeCell<Box<[MaybeUninit<T>]>>
+    pub len : usize,
+    pub data : SuperCell<Box<[MaybeUninit<SuperCell<T>>]>>
 }
 pub struct ParallelConstantList<T, const N: usize> {
     pub len : usize,
@@ -13,23 +18,36 @@ pub struct ParallelConstantList<T, const N: usize> {
 impl <T> ParallelList<T> {
     pub fn new(size : usize) -> Self {
         Self {
-            data : UnsafeCell::new(Box::new_uninit_slice(size))
+            len : 0,
+            data: SuperCell::new(Box::new_uninit_slice(size))
         }
     }
-    
+
     #[inline]
     pub fn insert(&self, value : T, index : usize) {
-        unsafe { *self.data.get().as_mut().unwrap().get_unchecked_mut(index) = MaybeUninit::new(value); }
+        unsafe { *self.data.get_mut().get_unchecked_mut(index) = MaybeUninit::new(SuperCell::new(value)); }
     }
     #[inline]
     pub fn get(&self, index : usize) -> &T {
-        unsafe { self.data.get().as_ref().unwrap().get_unchecked(index).assume_init_ref()}
+        unsafe { self.data.get_mut().get_unchecked(index).assume_init_ref().get()}
     }
     #[inline]
     pub fn get_mut(&self, index : usize) -> &mut T {
-        unsafe { self.data.get().as_mut().unwrap().get_unchecked_mut(index).assume_init_mut()}
+        unsafe { self.data.get_mut().get_unchecked_mut(index).assume_init_mut().get_mut()}
+    }
+    #[inline]
+    pub fn get_slice(&self) -> &[SuperCell<T>] {
+        unsafe { MaybeUninit::slice_assume_init_ref(self.data.get_mut().as_slice()) }
     }
 }
+
+impl <T : Sync + Send> ParallelList<T> {
+    #[inline]
+    pub fn get_slice_mut(&self) -> &mut [SuperCell<T>] { 
+        unsafe { MaybeUninit::slice_assume_init_mut(self.data.get_mut().as_parallel_slice_mut()) } 
+    }
+}
+
 impl <T> Index<usize> for ParallelList<T> {
     type Output = T;
     #[inline]

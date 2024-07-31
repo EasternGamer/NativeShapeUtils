@@ -5,6 +5,7 @@
 
 extern crate core;
 extern crate pheap;
+extern crate core;
 
 use core::slice::SlicePattern;
 use std::fs::File;
@@ -343,6 +344,8 @@ fn draw_tree<T : SimdPosition>(window: &mut Window, tree: &QuadTree<T>) {
 
 fn main() {
     computation();
+    let size = size_of::<Node>();
+    println!("Node size: {size}");
     let mut timer = StopWatch::start();
     let mut camera = FirstPerson::new_with_frustrum(70f32, 0.0001, 1000f32, Point3::new(0f32, 0f32, 0f32), Point3::new(1f32, 0f32, 0f32));
     camera.translate_mut(&Translation3::new(-15f32, 0f32, 0f32));

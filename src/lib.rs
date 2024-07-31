@@ -3,7 +3,8 @@
 #![feature(slice_pattern)]
 #![feature(new_uninit)]
 #![feature(maybe_uninit_uninit_array)]
-
+#![feature(maybe_uninit_slice)]
+extern crate core;
 extern crate core;
 
 use std::simd::*;
@@ -31,6 +32,7 @@ pub mod stop_watch;
 pub mod solver;
 pub mod helper;
 pub mod parallel_list;
+pub mod node;
 #[no_mangle]
 pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_sendTrafficLight<'l>(_env: JNIEnv<'l>, _class: JClass<'l>,  id : jint, x : jdouble, y : jdouble) {
     add_traffic_light(id, x, y);

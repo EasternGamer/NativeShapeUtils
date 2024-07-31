@@ -5,8 +5,9 @@ use chrono::{Timelike, Utc};
 use pheap::PairingHeap;
 use radix_heap::RadixHeapMap;
 use crate::data::distance;
-use crate::node::NodeType;
-use crate::struts::{HasIndex, Node, SimdPosition};
+use crate::node::*;
+use crate::parallel_list::ParallelList;
+use crate::struts::{HasIndex, SimdPosition};
 
 const HOUR_TO_MIN : f64 = 60f64;
 const HOUR_TO_SEC : f64 = HOUR_TO_MIN*60f64;
@@ -19,20 +20,6 @@ const MAX_TIME_MS : u32 = MAX_TIME_S*1000;
 const MAX_TIME : u32 = MAX_TIME_S;
 const CONVERSION_FACTOR : f64 = HOUR_TO_SEC;
 
-/*
-struct InitialNode {
-    pub index : u32,
-    pub position : Simd<f64, 2>,
-    pub cost : f64
-}
-
-struct RadixNode {
-    pub index : u32,
-    pub cost : f64,
-    pub previous : u32,
-    pub count : u32
-}
-*/
 pub struct Solver<'solver, T> where T : Sync + Send + HasIndex {
     pub start_node : &'solver Node<T>,
     pub end_node : &'solver Node<T>,
@@ -44,7 +31,7 @@ pub struct Solver<'solver, T> where T : Sync + Send + HasIndex {
     direct_heap: PairingHeap<&'solver Node<T>, f64>,
     current_iteration : u32,
     max_iterations : u32,
-    nodes: &'solver [Node<T>]
+    nodes: ParallelList<Node>
 }
 const ASSUMED_SPEED : f64 = 90f64;
 #[inline]
