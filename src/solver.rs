@@ -1,13 +1,12 @@
-use std::simd::prelude::SimdFloat;
 use std::simd::Simd;
-use std::time::{Instant, SystemTime};
+
 use chrono::{Timelike, Utc};
 use pheap::PairingHeap;
 use radix_heap::RadixHeapMap;
+
 use crate::data::distance;
 use crate::node::*;
-use crate::parallel_list::ParallelList;
-use crate::struts::{HasIndex, SimdPosition};
+use crate::struts::{HasIndex, SimdPosition, SuperCell};
 
 const HOUR_TO_MIN : f64 = 60f64;
 const HOUR_TO_SEC : f64 = HOUR_TO_MIN*60f64;
@@ -20,27 +19,27 @@ const MAX_TIME_MS : u32 = MAX_TIME_S*1000;
 const MAX_TIME : u32 = MAX_TIME_S;
 const CONVERSION_FACTOR : f64 = HOUR_TO_SEC;
 
-pub struct Solver<'solver, T> where T : Sync + Send + HasIndex {
-    pub start_node : &'solver Node<T>,
-    pub end_node : &'solver Node<T>,
+pub struct Solver<'solver> {
+    pub start_node : &'solver SuperCell<Node>,
+    pub end_node : &'solver SuperCell<Node>,
     pub avoid_traffic_lights : bool,
     pub total_iterations : u32,
     pub path : Option<(Box<[Simd<f64, 2>]>, f64)>,
-    heap : RadixHeapMap<u32, &'solver Node<T>>,
-    backup_heap : RadixHeapMap<u32, &'solver Node<T>>,
-    direct_heap: PairingHeap<&'solver Node<T>, f64>,
+    heap : RadixHeapMap<u32, &'solver SuperCell<Node>>,
+    backup_heap : RadixHeapMap<u32, &'solver SuperCell<Node>>,
+    direct_heap: PairingHeap<&'solver SuperCell<Node>, f64>,
     current_iteration : u32,
     max_iterations : u32,
-    nodes: ParallelList<Node>
+    nodes: &'solver [SuperCell<Node>]
 }
 const ASSUMED_SPEED : f64 = 90f64;
 #[inline]
-fn calculate_weight_optimal<T : SimdPosition>(node_1 : &Node<T>, node_2 : &Node<T>) -> f64 {
-    distance(node_1.value.position(), node_2.value.position())/ASSUMED_SPEED
+fn calculate_weight_optimal(node_1 : &Node, node_2 : &Node) -> f64 {
+    distance(node_1.position(), node_2.position())/ASSUMED_SPEED
 }
 
-impl <'solver, T> Solver<'solver, T> where T : Sync + Send + HasIndex + SimdPosition {
-    pub fn new(nodes : &'solver [Node<T>], start_node_index : usize, end_node_index : usize, max_iterations : u32) -> Self {
+impl <'solver> Solver<'solver>  {
+    pub fn new(nodes : &'solver [SuperCell<Node>], start_node_index : usize, end_node_index : usize, max_iterations : u32) -> Self {
          Self {
              heap : RadixHeapMap::new(),
              backup_heap : RadixHeapMap::new(),
@@ -58,12 +57,12 @@ impl <'solver, T> Solver<'solver, T> where T : Sync + Send + HasIndex + SimdPosi
 
     pub fn start(&mut self) {
         self.heap.push(MAX_TIME, self.start_node);
-        self.direct_heap.insert(self.start_node, calculate_weight_optimal(self.start_node, self.end_node));
-        self.start_node.set_cost(0f64);
+        self.direct_heap.insert(self.start_node, calculate_weight_optimal(self.start_node.get(), self.end_node.get()));
+        self.start_node.get_mut().set_cost(0f64);
     }
 
     #[inline(always)]
-    pub fn get_nodes(&'solver self) -> &'solver [Node<T>] {
+    pub fn get_nodes(&'solver self) -> &'solver [SuperCell<Node>] {
         self.nodes
     }
 
@@ -103,29 +102,28 @@ impl <'solver, T> Solver<'solver, T> where T : Sync + Send + HasIndex + SimdPosi
     }
     
     fn compute_pairing_direct(&mut self) {
-        let end_node_index = self.end_node.value.index() as u32;
+        let end_node_index = self.end_node.get().index() as u32;
         let time_in_hour = Utc::now().time().minute() as f64/60f64;
-        if !self.end_node.has_visited() {
+        if !self.end_node.get_mut().has_visited() {
             println!("Not visited");
             let mut visited = Vec::new();
             let mut found = false;
-            self.direct_heap.insert(self.start_node, calculate_weight_optimal(self.start_node, self.end_node));
+            self.direct_heap.insert(self.start_node, calculate_weight_optimal(self.start_node.get(), self.end_node.get()));
             while !self.direct_heap.is_empty() && !found {
-                let current_node = self.direct_heap.delete_min().expect("Heap was not empty, but had nothing to pop.").0;
+                let current_node = self.direct_heap.delete_min().expect("Heap was not empty, but had nothing to pop.").0.get_mut();
                 let local_cost = current_node.get_cost();
                 let time_offset_cost = time_in_hour + local_cost;
                 let new_node_length = current_node.get_connection_len() + 1;
-                let previous_index = current_node.value.index();
+                let previous_index = current_node.index();
                 for connection in current_node.get_connections() {
-                    let connected_node = &self.nodes[connection.index as usize];
+                    let super_connection = &self.nodes[connection.index as usize];
+                    let connected_node = super_connection.get_mut();
                     let connection_cost =
                         if self.avoid_traffic_lights {
-                            unsafe {
-                                match current_node.node_type.get().as_ref().expect("") {
-                                    NodeType::Normal => connection.cost,
-                                    NodeType::NearTrafficLight => connection.cost * 10f64 * Self::is_load_shedding(current_node.flag, time_offset_cost),
-                                    NodeType::AtTrafficLight => connection.cost * 20f64 * Self::is_load_shedding(current_node.flag, time_offset_cost)
-                                }
+                            match current_node.node_type {
+                                NodeType::Normal => connection.cost,
+                                NodeType::NearTrafficLight => connection.cost * 10f64 * Self::is_load_shedding(current_node.flag, time_offset_cost),
+                                NodeType::AtTrafficLight => connection.cost * 20f64 * Self::is_load_shedding(current_node.flag, time_offset_cost)
                             }
                         } else {
                             connection.cost
@@ -133,44 +131,45 @@ impl <'solver, T> Solver<'solver, T> where T : Sync + Send + HasIndex + SimdPosi
                     let new_local_cost = local_cost + connection_cost;
                     found = connection.index == end_node_index;
                     if !found && !connected_node.has_visited() {
-                        visited.push(connected_node);
+                        visited.push(super_connection);
                     }
                     if connected_node.check_updated_and_save(new_local_cost, previous_index as u32, new_node_length) && !found {
-                        self.direct_heap.insert(connected_node, calculate_weight_optimal(connected_node, self.end_node));
+                        self.direct_heap.insert(super_connection, calculate_weight_optimal(connected_node, self.end_node.get()));
                     }
                 }
             }
             self.direct_heap = PairingHeap::new();
-            visited.iter().for_each(|node| node.reset());
-            self.start_node.reset();
-            self.start_node.set_cost(0f64);
+            visited.into_iter().for_each(|node| node.get_mut().reset());
+            self.start_node.get_mut().reset();
+            self.start_node.get_mut().set_cost(0f64);
         }
     }
     
     fn compute_radix(&mut self) {
-        let end_node_index = self.end_node.value.index() as u32;
+        let end_node_index = self.end_node.get().index() as u32;
         while !self.heap.is_empty() && self.current_iteration < self.max_iterations {
             self.current_iteration += 1;
             self.total_iterations += 1;
             let pop = self.heap.pop().expect("Heap was not empty, but had nothing to pop.");
-            let current_node = pop.1;
+            let current_node = pop.1.get_mut();
             let local_cost = current_node.get_cost();
-            if self.end_node.is_lower_cost(local_cost + calculate_weight_optimal(current_node, self.end_node)) {
+            if self.end_node.get_mut().is_lower_cost(local_cost + calculate_weight_optimal(current_node, self.end_node.get())) {
                 continue;
             }
-            let previous_index = current_node.value.index();
+            let previous_index = current_node.index();
             let pop_cost = pop.0;
             let new_node_length = current_node.get_connection_len() + 1;
             for connection in current_node.get_connections() {
                 let new_local_cost = local_cost + connection.cost;
-                let connected_node = &self.nodes[connection.index as usize];
+                let super_node = &self.nodes[connection.index as usize];
+                let connected_node = super_node.get_mut();
                 if connected_node.check_updated_and_save(new_local_cost, previous_index as u32, new_node_length) && connection.index != end_node_index {
                     let tmp = (new_local_cost*CONVERSION_FACTOR) as u32;
                     let push_cost = MAX_TIME - tmp;
                     if push_cost <= pop_cost {
-                        self.heap.push(push_cost, connected_node);
+                        self.heap.push(push_cost, super_node);
                     } else {
-                        self.backup_heap.push(push_cost, connected_node);
+                        self.backup_heap.push(push_cost, super_node);
                     }
                 }
             }
@@ -182,8 +181,8 @@ impl <'solver, T> Solver<'solver, T> where T : Sync + Send + HasIndex + SimdPosi
         self.compute_radix();
         self.merge();
         self.current_iteration = 0;
-        if self.end_node.has_visited() {
-            self.path = Some((self.backtrack(), self.end_node.get_cost()))
+        if self.end_node.get_mut().has_visited() {
+            self.path = Some((self.backtrack(), self.end_node.get_mut().get_cost()))
         }
     }
 
@@ -191,26 +190,26 @@ impl <'solver, T> Solver<'solver, T> where T : Sync + Send + HasIndex + SimdPosi
         self.compute_radix();
         self.merge();
         self.current_iteration = 0;
-        if self.end_node.has_visited() {
-            self.path = Some((self.backtrack(), self.end_node.get_cost()))
+        if self.end_node.get_mut().has_visited() {
+            self.path = Some((self.backtrack(), self.end_node.get_mut().get_cost()))
         }
     }
     
     pub fn backtrack(&self) -> Box<[Simd<f64, 2>]> {
-        let length = self.end_node.get_connection_len() as usize;
+        let length = self.end_node.get_mut().get_connection_len() as usize;
         let mut path = Vec::with_capacity(length);
         let mut previous_node = self.end_node;
         for _ in 0..(length-1) {
-            path.push(*previous_node.value.position());
-            let previous_index = previous_node.get_previous();
+            path.push(*previous_node.get().position());
+            let previous_index = previous_node.get_mut().get_previous();
             if previous_index != u32::MAX {
-                previous_node = &self.nodes[previous_node.get_previous() as usize];
+                previous_node = &self.nodes[previous_index as usize];
             } else {
                 break;
             }
         }
         //assert_eq!(previous_node.value.index(), self.start_node.value.index());
-        path.push(*previous_node.value.position());
+        path.push(*previous_node.get().position());
         path.into_boxed_slice()
     }
 
@@ -218,15 +217,15 @@ impl <'solver, T> Solver<'solver, T> where T : Sync + Send + HasIndex + SimdPosi
         self.heap.clear();
         self.direct_heap = PairingHeap::new();
         self.path = None;
-        self.nodes.iter().for_each(Node::reset);
+        self.nodes.iter().for_each(|x| {x.get_mut().reset()});
         self.current_iteration = 0;
         self.total_iterations = 0;
         self.heap.push(MAX_TIME, self.start_node);
-        self.start_node.set_cost(0f64);
+        self.start_node.get_mut().set_cost(0f64);
     }
 }
 
-unsafe impl <'solver, T> Sync for Solver<'solver, T> where T: Sync + Send + HasIndex {
+unsafe impl <'solver> Sync for Solver<'solver>  {
 }
-unsafe impl <'solver, T> Send for Solver<'solver, T> where T: Sync + Send + HasIndex {
+unsafe impl <'solver> Send for Solver<'solver>{
 }
