@@ -26,6 +26,7 @@ static_init = "1.0.3"
 kiss3d = "0.35.0"
 heapless = "0.8.0"
 crossbeam = "0.8.4"
+chrono = "0.4.38"
 
 [lib]
 name = "NativeShapeUtils"

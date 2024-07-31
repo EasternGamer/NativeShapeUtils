@@ -1,4 +1,5 @@
 use core::slice::SlicePattern;
+use std::cell::UnsafeCell;
 use std::fmt::{Display, Formatter};
 use std::mem::MaybeUninit;
 use std::ops::{Div, Sub};
@@ -8,6 +9,7 @@ use std::simd::Simd;
 use crossbeam::atomic::AtomicCell;
 
 use crate::helper::{ByteConvertable, read_f64, read_i32, skip_i32};
+use crate::node::NodeType;
 
 const MAX_CAPACITY : usize = 1024;
 const MAX_DEPTH : i8 = 32; 
@@ -30,7 +32,9 @@ pub struct NodeData {
 pub struct Node<T> {
     pub value : T,
     pub connections : Box<[Connection]>,
-    data : AtomicCell<NodeData>
+    pub node_type : UnsafeCell<NodeType>,
+    pub flag: u32,
+    data : AtomicCell<NodeData>,
 }
 impl <T : SimdPosition> SimdPosition for Node<T> {
     #[inline]
@@ -46,10 +50,12 @@ impl <T: HasIndex> HasIndex for Node<T> {
 
 impl <T : HasIndex> Node<T> {
     #[inline]
-    pub fn new(value : T, connections: Box<[Connection]>) -> Self {
+    pub fn new(value : T, flag : u32, connections: Box<[Connection]>) -> Self {
         Self {
             value,
             connections,
+            node_type : UnsafeCell::new(NodeType::Normal),
+            flag,
             data : AtomicCell::new(
                 NodeData {
                     cost : f64::MAX,
@@ -136,7 +142,7 @@ pub struct RoadNode {
     pub index : usize,
     pub position : Simd<f64, 2>,
     pub speed : f64,
-    pub node_type : i32
+    pub node_type : u8
 }
 
 impl HasIndex for RoadNode {
@@ -475,7 +481,7 @@ impl ByteConvertable for Node<RoadNode> {
         let x = read_f64(byte_array, &mut index);
         let y = read_f64(byte_array, &mut index);
         let speed = read_f64(byte_array, &mut index);
-        let node_type = read_i32(byte_array, &mut index);
+        let node_type = read_i32(byte_array, &mut index) as u8;
         let connected_indices_size = read_i32(byte_array, &mut index) as usize;
         let mut tmp_indices = Box::new_uninit_slice(connected_indices_size);
         unsafe {
@@ -486,12 +492,16 @@ impl ByteConvertable for Node<RoadNode> {
                 });
             }
 
-            Node::new(RoadNode {
-                index: id as usize,
-                position: Simd::from_array([x, y]),
-                speed,
-                node_type,
-            }, tmp_indices.assume_init())
+            Node::new(
+                RoadNode { 
+                    index: id as usize, 
+                    position: Simd::from_array([x, y]), 
+                    speed, 
+                    node_type, 
+                }, 
+                u32::MAX, 
+                tmp_indices.assume_init()
+            )
         }
     }
 }

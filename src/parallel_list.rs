@@ -1,9 +1,9 @@
+use std::cell::UnsafeCell;
 use std::mem::MaybeUninit;
 use std::ops::{Index, IndexMut};
-
+#[derive(Debug)]
 pub struct ParallelList<T> {
-    pub len : usize,
-    pub data : Box<[MaybeUninit<T>]>
+    pub data : UnsafeCell<Box<[MaybeUninit<T>]>>
 }
 pub struct ParallelConstantList<T, const N: usize> {
     pub len : usize,
@@ -13,23 +13,21 @@ pub struct ParallelConstantList<T, const N: usize> {
 impl <T> ParallelList<T> {
     pub fn new(size : usize) -> Self {
         Self {
-            len : 0,
-            data : Box::new_uninit_slice(size)
+            data : UnsafeCell::new(Box::new_uninit_slice(size))
         }
     }
     
     #[inline]
-    pub fn insert(&mut self, value : T, index : usize) {
-        unsafe { *self.data.get_unchecked_mut(index) = MaybeUninit::new(value); }
-        self.len += 1;
+    pub fn insert(&self, value : T, index : usize) {
+        unsafe { *self.data.get().as_mut().unwrap().get_unchecked_mut(index) = MaybeUninit::new(value); }
     }
     #[inline]
     pub fn get(&self, index : usize) -> &T {
-        unsafe { self.data.get_unchecked(index).assume_init_ref()}
+        unsafe { self.data.get().as_ref().unwrap().get_unchecked(index).assume_init_ref()}
     }
     #[inline]
-    pub fn get_mut(&mut self, index : usize) -> &mut T {
-        unsafe { self.data.get_unchecked_mut(index).assume_init_mut()}
+    pub fn get_mut(&self, index : usize) -> &mut T {
+        unsafe { self.data.get().as_mut().unwrap().get_unchecked_mut(index).assume_init_mut()}
     }
 }
 impl <T> Index<usize> for ParallelList<T> {

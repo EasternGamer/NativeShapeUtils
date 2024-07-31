@@ -3,6 +3,7 @@
 #![feature(slice_pattern)]
 #![feature(new_uninit)]
 #![feature(maybe_uninit_uninit_array)]
+
 extern crate core;
 
 use std::simd::*;
@@ -26,7 +27,6 @@ use crate::struts::{BoundarySIMD, Connection, Geometry, TrafficLight};
 
 pub mod struts;
 pub mod data;
-pub mod node;
 pub mod stop_watch;
 pub mod solver;
 pub mod helper;
@@ -120,14 +120,14 @@ pub extern "system" fn Java_io_github_easterngamer_ffi_FFISolver_buildSolver<'l>
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_easterngamer_FFISolver_findPath<'l>(_env: JNIEnv<'l>, _class: JClass<'l>,
+pub extern "system" fn Java_io_github_easterngamer_ffi__FFISolver_findPath<'l>(_env: JNIEnv<'l>, _class: JClass<'l>,
                                                                                  source_x : jdouble, source_y : jdouble,
                                                                                  destination_x : jdouble, destination_y : jdouble) {
     
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_sendGeometry<'v> (env: JNIEnv<'v>, _class: JClass<'v>,
+pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_sendSuburb<'v> (env: JNIEnv<'v>, _class: JClass<'v>,
                                                                                       id : jint, x_points_j: JDoubleArray<'v>, y_points_j: JDoubleArray<'v>,
                                                                                       max_x : jdouble, min_x : jdouble, max_y : jdouble, min_y : jdouble) {
     let size = env.get_array_length(&x_points_j).expect("[Rust Binding] Critical Error! Unable to read array length of points while sending geometry to rust.") as usize;
@@ -142,7 +142,7 @@ pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_sendGeometry<'
 
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_easterngamer_FFISolver_sendRoadNode<'v> (env: JNIEnv<'v>, _class: JClass<'v>,
+pub extern "system" fn Java_io_github_easterngamer_ffi_FFISolver_sendRoadNode<'v> (env: JNIEnv<'v>, _class: JClass<'v>,
                                                                                       id : jint, x_point: jdouble, y_point: jdouble,
                                                                                       speed : jdouble, node_type : jint, 
                                                                                       connections_j : JIntArray<'v>, weights_j : JDoubleArray<'v>) {
@@ -159,13 +159,15 @@ pub extern "system" fn Java_io_github_easterngamer_FFISolver_sendRoadNode<'v> (e
             cost: weights[i]
         }
     }
-    add_node(id, x_point, y_point, speed, node_type, edges);
+    add_node(id, x_point, y_point, speed, node_type as u8, edges);
 }
 
 #[inline]
 pub fn compute(geometries : &[Geometry], traffic_lights: &[TrafficLight]) -> Vec<(jint, jint)> {
+    //let block_size = geometries.len()/12;
     geometries
         .par_iter()
+        //.by_uniform_blocks(block_size)
         .flat_map_iter(|geometry: &Geometry| {
             traffic_lights.iter()
                 .filter(|traffic_light| geometry.is_inside(&traffic_light.position))
