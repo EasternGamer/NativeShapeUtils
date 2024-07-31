@@ -7,6 +7,7 @@ use radix_heap::RadixHeapMap;
 use crate::data::distance;
 use crate::node::*;
 use crate::struts::{HasIndex, SimdPosition, SuperCell};
+use crate::types::{Cost, Pos};
 
 const HOUR_TO_MIN : f64 = 60f64;
 const HOUR_TO_SEC : f64 = HOUR_TO_MIN*60f64;
@@ -17,24 +18,24 @@ const MAX_TIME_S : u32 = MAX_TIME_MIN*60;
 const MAX_TIME_MS : u32 = MAX_TIME_S*1000;
 
 const MAX_TIME : u32 = MAX_TIME_S;
-const CONVERSION_FACTOR : f64 = HOUR_TO_SEC;
+const CONVERSION_FACTOR : Cost = HOUR_TO_SEC as Cost;
 
 pub struct Solver<'solver> {
     pub start_node : &'solver SuperCell<Node>,
     pub end_node : &'solver SuperCell<Node>,
     pub avoid_traffic_lights : bool,
     pub total_iterations : u32,
-    pub path : Option<(Box<[Simd<f64, 2>]>, f64)>,
+    pub path : Option<(Box<[Simd<Pos, 2>]>, Cost)>,
     heap : RadixHeapMap<u32, &'solver SuperCell<Node>>,
     backup_heap : RadixHeapMap<u32, &'solver SuperCell<Node>>,
-    direct_heap: PairingHeap<&'solver SuperCell<Node>, f64>,
+    direct_heap: PairingHeap<&'solver SuperCell<Node>, Cost>,
     current_iteration : u32,
     max_iterations : u32,
     nodes: &'solver [SuperCell<Node>]
 }
-const ASSUMED_SPEED : f64 = 90f64;
+const ASSUMED_SPEED : Pos = 120f64 as Pos;
 #[inline]
-fn calculate_weight_optimal(node_1 : &Node, node_2 : &Node) -> f64 {
+fn calculate_weight_optimal(node_1 : &Node, node_2 : &Node) -> Pos {
     distance(node_1.position(), node_2.position())/ASSUMED_SPEED
 }
 
@@ -57,8 +58,8 @@ impl <'solver> Solver<'solver>  {
 
     pub fn start(&mut self) {
         self.heap.push(MAX_TIME, self.start_node);
-        self.direct_heap.insert(self.start_node, calculate_weight_optimal(self.start_node.get(), self.end_node.get()));
-        self.start_node.get_mut().set_cost(0f64);
+        self.direct_heap.insert(self.start_node, calculate_weight_optimal(self.start_node.get(), self.end_node.get()) as Cost);
+        self.start_node.get_mut().set_cost(0f64 as Cost);
     }
 
     #[inline(always)]
@@ -83,6 +84,7 @@ impl <'solver> Solver<'solver>  {
 
     fn merge(&mut self) {
         if !self.backup_heap.is_empty() {
+            println!("Merging...");
             let mut new_radix = RadixHeapMap::new();
             let left_over_values = self.heap.iter();
             let bad_values = self.backup_heap.iter();
@@ -97,18 +99,18 @@ impl <'solver> Solver<'solver>  {
         }
     }
 
-    const fn is_load_shedding(flag : u32, current_cost_time : f64) -> f64 {
-        (flag << (31 - current_cost_time as u32) >> 31) as f64
+    const fn is_load_shedding(flag : u32, current_cost_time : Cost) -> Cost {
+        (flag << (31 - current_cost_time as u32) >> 31) as Cost
     }
     
     fn compute_pairing_direct(&mut self) {
         let end_node_index = self.end_node.get().index() as u32;
-        let time_in_hour = Utc::now().time().minute() as f64/60f64;
+        let time_in_hour = (Utc::now().time().minute() as f64/60f64) as Cost;
         if !self.end_node.get_mut().has_visited() {
-            println!("Not visited");
+            println!("Computing Direct");
             let mut visited = Vec::new();
             let mut found = false;
-            self.direct_heap.insert(self.start_node, calculate_weight_optimal(self.start_node.get(), self.end_node.get()));
+            self.direct_heap.insert(self.start_node, calculate_weight_optimal(self.start_node.get(), self.end_node.get()) as Cost);
             while !self.direct_heap.is_empty() && !found {
                 let current_node = self.direct_heap.delete_min().expect("Heap was not empty, but had nothing to pop.").0.get_mut();
                 let local_cost = current_node.get_cost();
@@ -122,8 +124,8 @@ impl <'solver> Solver<'solver>  {
                         if self.avoid_traffic_lights {
                             match current_node.node_type {
                                 NodeType::Normal => connection.cost,
-                                NodeType::NearTrafficLight => connection.cost * 10f64 * Self::is_load_shedding(current_node.flag, time_offset_cost),
-                                NodeType::AtTrafficLight => connection.cost * 20f64 * Self::is_load_shedding(current_node.flag, time_offset_cost)
+                                NodeType::NearTrafficLight => connection.cost * (10f64 as Cost) * Self::is_load_shedding(current_node.flag, time_offset_cost),
+                                NodeType::AtTrafficLight => connection.cost * (20f64 as Cost) * Self::is_load_shedding(current_node.flag, time_offset_cost)
                             }
                         } else {
                             connection.cost
@@ -134,33 +136,45 @@ impl <'solver> Solver<'solver>  {
                         visited.push(super_connection);
                     }
                     if connected_node.check_updated_and_save(new_local_cost, previous_index as u32, new_node_length) && !found {
-                        self.direct_heap.insert(super_connection, calculate_weight_optimal(connected_node, self.end_node.get()));
+                        self.direct_heap.insert(super_connection, calculate_weight_optimal(connected_node, self.end_node.get()) as Cost);
                     }
                 }
             }
             self.direct_heap = PairingHeap::new();
             visited.into_iter().for_each(|node| node.get_mut().reset());
             self.start_node.get_mut().reset();
-            self.start_node.get_mut().set_cost(0f64);
+            self.start_node.get_mut().set_cost(0f64 as Cost);
         }
     }
     
     fn compute_radix(&mut self) {
         let end_node_index = self.end_node.get().index() as u32;
+        let time_in_hour = (Utc::now().time().minute() as f64/60f64) as Cost;
         while !self.heap.is_empty() && self.current_iteration < self.max_iterations {
             self.current_iteration += 1;
             self.total_iterations += 1;
             let pop = self.heap.pop().expect("Heap was not empty, but had nothing to pop.");
             let current_node = pop.1.get_mut();
             let local_cost = current_node.get_cost();
-            if self.end_node.get_mut().is_lower_cost(local_cost + calculate_weight_optimal(current_node, self.end_node.get())) {
+            if self.end_node.get_mut().is_lower_cost(local_cost) {
                 continue;
             }
             let previous_index = current_node.index();
             let pop_cost = pop.0;
             let new_node_length = current_node.get_connection_len() + 1;
+            let time_offset_cost = time_in_hour + local_cost;
             for connection in current_node.get_connections() {
-                let new_local_cost = local_cost + connection.cost;
+                let connection_cost =
+                    if self.avoid_traffic_lights {
+                        match current_node.node_type {
+                            NodeType::Normal => connection.cost,
+                            NodeType::NearTrafficLight => connection.cost * (10f64 as Cost) * Self::is_load_shedding(current_node.flag, time_offset_cost),
+                            NodeType::AtTrafficLight => connection.cost * (20f64 as Cost) * Self::is_load_shedding(current_node.flag, time_offset_cost)
+                        }
+                    } else {
+                        connection.cost
+                    };
+                let new_local_cost = local_cost + connection_cost;
                 let super_node = &self.nodes[connection.index as usize];
                 let connected_node = super_node.get_mut();
                 if connected_node.check_updated_and_save(new_local_cost, previous_index as u32, new_node_length) && connection.index != end_node_index {
@@ -174,6 +188,8 @@ impl <'solver> Solver<'solver>  {
                 }
             }
         }
+        let iterations = self.total_iterations;
+        println!("Computed Radix a total of {iterations}");
     }
     
     pub fn compute_pre_find(&mut self) {
@@ -195,7 +211,7 @@ impl <'solver> Solver<'solver>  {
         }
     }
     
-    pub fn backtrack(&self) -> Box<[Simd<f64, 2>]> {
+    pub fn backtrack(&self) -> Box<[Simd<Pos, 2>]> {
         let length = self.end_node.get_mut().get_connection_len() as usize;
         let mut path = Vec::with_capacity(length);
         let mut previous_node = self.end_node;
@@ -221,7 +237,7 @@ impl <'solver> Solver<'solver>  {
         self.current_iteration = 0;
         self.total_iterations = 0;
         self.heap.push(MAX_TIME, self.start_node);
-        self.start_node.get_mut().set_cost(0f64);
+        self.start_node.get_mut().set_cost(0f64 as Cost);
     }
 }
 

@@ -4,15 +4,20 @@ use std::simd::Simd;
 use rayon::prelude::*;
 use crate::data::distance;
 use crate::helper::{ByteConvertable, read_f64, read_i32, skip_f64, skip_i32};
-use crate::struts::{HasIndex, RoadNode, SimdPosition, SuperCell, TrafficLight};
+use crate::struts::{HasIndex, SimdPosition, SuperCell, TrafficLight};
+use crate::types::{Cost, Flag, Index, Pos};
 
-#[derive(Debug, Eq, PartialEq)]
+#[derive(Debug, Eq, PartialEq, Copy, Clone)]
 #[repr(u8)]
 pub enum NodeType {
     AtTrafficLight = 2,
     NearTrafficLight = 1,
     Normal = 0
 }
+
+const AT_TRAFFIC_LIGHT_THRESHOLD: Pos = 25f64 as Pos;
+const NEAR_TRAFFIC_LIGHT_THRESHOLD: Pos = 100f64 as Pos;
+
 impl NodeType {
     pub fn assign_types(traffic_light : &TrafficLight, nodes : &[&SuperCell<Node>]) {
         nodes.as_parallel_slice().into_par_iter().for_each(|node| {
@@ -20,15 +25,15 @@ impl NodeType {
             match mutable_node.node_type {
                 NodeType::Normal => {
                     let distance = distance(&traffic_light.position, mutable_node.position());
-                    if distance < 10f64 {
+                    if distance < AT_TRAFFIC_LIGHT_THRESHOLD {
                         mutable_node.node_type = NodeType::AtTrafficLight
-                    } else if distance < 20f64 {
+                    } else if distance < NEAR_TRAFFIC_LIGHT_THRESHOLD {
                         mutable_node.node_type = NodeType::NearTrafficLight
                     }
                 },
                 NodeType::NearTrafficLight => {
                     let distance = distance(&traffic_light.position, mutable_node.position());
-                    if distance < 10f64 {
+                    if distance < AT_TRAFFIC_LIGHT_THRESHOLD {
                         mutable_node.node_type = NodeType::AtTrafficLight
                     }
                 },
@@ -38,8 +43,6 @@ impl NodeType {
     }
 }
 
-type Cost = f64;
-type Flag = u32;
 #[derive(Clone)]
 pub struct Connection {
     pub index : u32,
@@ -47,20 +50,36 @@ pub struct Connection {
 }
 unsafe impl Send for Connection {}
 unsafe impl Sync for Connection {}
+
 pub struct Node {
-    pub index : u32,
+    pub index : Index,
     cost : Cost,
+    pub flag : Flag,
     previous : u32,
     connection_len: u16,
-    pub position : Simd<f64, 2>,
-    pub flag : Flag,
     pub node_type : NodeType,
+    pub position : Simd<Pos, 2>,
     pub connections : Box<[Connection]>
+}
+
+impl Clone for Node {
+    fn clone(&self) -> Self {
+        Self {
+            index : self.index,
+            cost : self.cost,
+            flag : self.flag,
+            position : self.position,
+            previous : self.previous,
+            connection_len: self.connection_len,
+            node_type: self.node_type,
+            connections: self.connections.clone(),
+        }
+    }
 }
 
 impl SimdPosition for Node {
     #[inline]
-    fn position(&self) -> &Simd<f64, 2> {
+    fn position(&self) -> &Simd<Pos, 2> {
         &self.position
     }
 }
@@ -72,12 +91,12 @@ impl HasIndex for Node {
 
 impl Node {
     #[inline]
-    pub fn new(index: u32, position: Simd<f64, 2>, connections: Box<[Connection]>) -> Self {
+    pub fn new(index: Index, position: Simd<Pos, 2>, connections: Box<[Connection]>) -> Self {
         Self {
             index,
             position,
-            cost : -1f64,
-            flag : u32::MAX,
+            cost : Cost::MAX,
+            flag : Flag::MAX,
             previous : u32::MAX,
             connection_len: 0,
             node_type : NodeType::Normal,
@@ -109,16 +128,16 @@ impl Node {
         self.cost = new_cost;
     }
     #[inline(always)]
-    pub fn get_cost(&self) -> f64 {
+    pub fn get_cost(&self) -> Cost {
         self.cost
     }
     #[inline(always)]
-    pub fn is_lower_cost(&self, new_cost : f64) -> bool {
+    pub fn is_lower_cost(&self, new_cost : Cost) -> bool {
         self.get_cost() < new_cost
     }
     #[inline(always)]
     pub fn has_visited(&self) -> bool {
-        self.cost != -1f64
+        self.cost != Cost::MAX
     }
     #[inline(always)]
     pub fn get_previous(&self) -> u32 {
@@ -126,7 +145,7 @@ impl Node {
     }
     #[inline(always)]
     pub fn reset(&mut self) {
-        self.cost = f64::MAX;
+        self.cost = Cost::MAX;
         self.previous = u32::MAX;
         self.connection_len = 0u16;
     }
@@ -148,13 +167,13 @@ impl ByteConvertable for Node {
             for index_c in 0..connected_indices_size {
                 tmp_indices[index_c] = MaybeUninit::new(Connection {
                     index: read_i32(byte_array, &mut index) as u32,
-                    cost: read_f64(byte_array, &mut index)
+                    cost: read_f64(byte_array, &mut index) as Cost
                 });
             }
 
             Node::new(
-                id as u32,
-                Simd::from_array([x, y]),
+                id as Index,
+                Simd::from_array([x as Pos, y as Pos]),
                 tmp_indices.assume_init()
             )
         }

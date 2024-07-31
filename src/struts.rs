@@ -1,21 +1,18 @@
 use core::slice::SlicePattern;
-use std::cell::{Cell, UnsafeCell};
+use std::cell::UnsafeCell;
 use std::fmt::{Display, Formatter};
-use std::mem::MaybeUninit;
 use std::ops::{Div, Sub};
 use std::simd::prelude::{SimdFloat, SimdPartialOrd};
 use std::simd::Simd;
 
-use crossbeam::atomic::AtomicCell;
-
 use crate::helper::{ByteConvertable, read_f64, read_i32, skip_i32};
-use crate::node::NodeType;
+use crate::types::{Index, Pos};
 
 const MAX_CAPACITY : usize = 1024;
 const MAX_DEPTH : i8 = 32; 
 
 pub trait SimdPosition {
-    fn position(&self) -> &Simd<f64, 2>;
+    fn position(&self) -> &Simd<Pos, 2>;
 }
 pub trait HasIndex {
     fn index(&self) -> usize;
@@ -27,7 +24,7 @@ pub struct SuperCell<T : ?Sized> {
 
 impl <T : SimdPosition> SimdPosition for SuperCell<T> {
     #[inline]
-    fn position(&self) -> &Simd<f64, 2> {
+    fn position(&self) -> &Simd<Pos, 2> {
         self.get().position()
     }
 }
@@ -87,26 +84,6 @@ impl<T, const N: usize> SuperCell<[T; N]> {
     }
 }
 
-#[derive(Clone)]
-pub struct RoadNode {
-    pub index : usize,
-    pub position : Simd<f64, 2>,
-    pub speed : f64,
-    pub node_type : u8
-}
-
-impl HasIndex for RoadNode {
-    fn index(&self) -> usize {
-        self.index
-    }
-}
-impl SimdPosition for RoadNode {
-    #[inline]
-     fn position(&self) -> &Simd<f64, 2> {
-        &self.position
-    }
-}
-
 pub struct QuadTree<'life, T : SimdPosition> {
     pub top_left : Box<Option<QuadTree<'life, T>>>,
     pub top_right : Box<Option<QuadTree<'life, T>>>,
@@ -135,12 +112,12 @@ impl <'life, T : SimdPosition> QuadTree<'life, T> {
     }
     
     #[inline]
-    pub fn contains(&self, point : &Simd<f64, 2>) -> bool {
+    pub fn contains(&self, point : &Simd<Pos, 2>) -> bool {
         self.boundary.contains(point)
     }
     
     
-    fn find_data_top_left(&self, point : &Simd<f64, 2>) -> Option<&Vec<&T>> {
+    fn find_data_top_left(&self, point : &Simd<Pos, 2>) -> Option<&Vec<&T>> {
         match self.top_left.as_ref() { 
             Some(child_node) => {
                 child_node.find_data(point)
@@ -148,7 +125,7 @@ impl <'life, T : SimdPosition> QuadTree<'life, T> {
             None => None
         }
     }
-    fn find_data_top_right(&self, point : &Simd<f64, 2>) -> Option<&Vec<&T>> {
+    fn find_data_top_right(&self, point : &Simd<Pos, 2>) -> Option<&Vec<&T>> {
         match self.top_right.as_ref() {
             Some(child_node) => {
                 child_node.find_data(point)
@@ -157,7 +134,7 @@ impl <'life, T : SimdPosition> QuadTree<'life, T> {
         }
     }
 
-    fn find_data_bottom_right(&self, point : &Simd<f64, 2>) -> Option<&Vec<&T>> {
+    fn find_data_bottom_right(&self, point : &Simd<Pos, 2>) -> Option<&Vec<&T>> {
         match self.bottom_right.as_ref() {
             Some(child_node) => {
                 child_node.find_data(point)
@@ -165,7 +142,7 @@ impl <'life, T : SimdPosition> QuadTree<'life, T> {
             None => None
         }
     }
-    fn find_data_bottom_left(&self, point : &Simd<f64, 2>) -> Option<&Vec<&T>> {
+    fn find_data_bottom_left(&self, point : &Simd<Pos, 2>) -> Option<&Vec<&T>> {
         match self.bottom_left.as_ref() {
             Some(child_node) => {
                 child_node.find_data(point)
@@ -174,7 +151,7 @@ impl <'life, T : SimdPosition> QuadTree<'life, T> {
         }
     }
     
-    pub fn find_data(&self, point : &Simd<f64, 2>) -> Option<&Vec<&T>> {
+    pub fn find_data(&self, point : &Simd<Pos, 2>) -> Option<&Vec<&T>> {
         if self.contains(point) {
             return if self.has_children {
                 match self.find_data_top_left(point) {
@@ -253,7 +230,7 @@ impl <'life, T : SimdPosition> QuadTree<'life, T> {
     pub fn sub_divide(&mut self) {
         let corner_min_simd = &self.boundary.corner_min;
         let corner_max_simd = &self.boundary.corner_max;
-        let center_simd = &corner_max_simd.sub((corner_max_simd - corner_min_simd).div(Simd::from_array([2f64, 2f64]))) ;
+        let center_simd = &corner_max_simd.sub((corner_max_simd - corner_min_simd).div(Simd::from_array([2f64 as Pos, 2f64 as Pos]))) ;
         let corner_min_array = corner_min_simd.as_array();
         let center_array = center_simd.as_array();
         let corner_max_array = corner_max_simd.as_array();
@@ -306,13 +283,13 @@ impl <'life, T : SimdPosition> QuadTree<'life, T> {
 }
 
 pub struct BoundarySIMD {
-    pub corner_max : Simd<f64, 2>,
-    pub corner_min : Simd<f64, 2>
+    pub corner_max : Simd<Pos, 2>,
+    pub corner_min : Simd<Pos, 2>
 }
 
 impl BoundarySIMD {
     #[inline]
-    pub fn contains(&self, point : &Simd<f64, 2>) -> bool {
+    pub fn contains(&self, point : &Simd<Pos, 2>) -> bool {
         point.simd_le(self.corner_max).all() && point.simd_ge(self.corner_min).all()
     }
     #[inline]
@@ -328,10 +305,10 @@ impl Display for BoundarySIMD {
 }
 
 pub struct Geometry {
-    pub id : usize,
+    pub id : Index,
     pub boundary : BoundarySIMD,
-    pub x_points : Box<[f64]>,
-    pub y_points : Box<[f64]>,
+    pub x_points : Box<[Pos]>,
+    pub y_points : Box<[Pos]>,
 }
 /*
 impl Clone for Geometry {
@@ -354,7 +331,7 @@ impl Geometry {
      * <br>https://en.wikipedia.org/wiki/Even-odd_rule</br>
      */
     #[inline]
-    pub fn is_inside(&self, pos : &Simd<f64, 2>) -> bool {
+    pub fn is_inside(&self, pos : &Simd<Pos, 2>) -> bool {
         if self.boundary.contains(pos) {
             self.is_inside_no_bound_check(pos)
         } else {
@@ -363,7 +340,7 @@ impl Geometry {
     }
     
     #[inline]
-    pub fn is_inside_no_bound_check(&self, pos : &Simd<f64, 2>) -> bool {
+    pub fn is_inside_no_bound_check(&self, pos : &Simd<Pos, 2>) -> bool {
         let pos_array = pos.as_array();
         let x = pos_array[0];
         let y = pos_array[1];
@@ -381,7 +358,7 @@ impl Geometry {
             ax = bound_x[eb];
             ay = bound_y[eb];
             asimd = Simd::from_array([ax, ay]);
-            if (y < ay) != (y < by) && (xsimd.sub(asimd).reduce_product() - ysimd.sub(asimd).reduce_product() < 0f64) != (by < ay) {
+            if (y < ay) != (y < by) && (xsimd.sub(asimd).reduce_product() - ysimd.sub(asimd).reduce_product() < (0f64 as Pos)) != (by < ay) {
                 inside = !inside;
             }
             xsimd = Simd::from_array([x, ay]);
@@ -393,8 +370,8 @@ impl Geometry {
 }
 #[derive(Clone, Copy)]
 pub struct TrafficLight {
-    pub id : usize,
-    pub position: Simd<f64, 2>
+    pub id : Index,
+    pub position: Simd<Pos, 2>
 }
 
 impl HasIndex for TrafficLight {
@@ -407,7 +384,7 @@ impl HasIndex for TrafficLight {
 
 impl SimdPosition for TrafficLight {
     #[inline]
-    fn position(&self) -> &Simd<f64, 2> {
+    fn position(&self) -> &Simd<Pos, 2> {
         &self.position
     }
 }
@@ -416,8 +393,8 @@ impl ByteConvertable for TrafficLight {
         let mut index = 0;
         let id = read_i32(byte_array, &mut index);
         skip_i32(&mut index);
-        let x = read_f64(byte_array, &mut index);
-        let y = read_f64(byte_array, &mut index);
+        let x = read_f64(byte_array, &mut index) as Pos;
+        let y = read_f64(byte_array, &mut index) as Pos;
         Self {
             id : id as usize,
             position : Simd::from_array([x, y])

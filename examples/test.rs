@@ -13,8 +13,7 @@ use std::fs::File;
 use std::io::Read;
 use std::simd::Simd;
 use std::sync::Arc;
-use std::thread::{sleep, spawn};
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crossbeam::atomic::AtomicCell;
 use jni::sys::{jdouble, jint};
@@ -25,14 +24,15 @@ use kiss3d::ncollide3d::math::Translation;
 use kiss3d::text::Font;
 use kiss3d::window::Window;
 use rayon::prelude::*;
-
 use crate::data::*;
 use crate::helper::*;
 use crate::lib::*;
 use crate::node::*;
+use crate::parallel_list::ParallelList;
 use crate::solver::*;
 use crate::stop_watch::*;
 use crate::struts::*;
+use crate::types::Pos;
 
 #[path = "../src/lib.rs"]
 mod lib;
@@ -57,6 +57,9 @@ mod helper;
 
 #[path = "../src/parallel_list.rs"]
 mod parallel_list;
+
+#[path = "../src/types.rs"]
+mod types;
 
 pub fn computation() {
     println!("Computing...");
@@ -98,11 +101,11 @@ pub fn computation() {
         let max_x = read_f64(&file_bytes, &mut index);
         let max_y = read_f64(&file_bytes, &mut index);
         skip_string(&mut index, name_length);
-        let mut x_points = new_double_slice(coordinate_length);
-        let mut y_points = new_double_slice(coordinate_length);
+        let mut x_points = new_pos_slice(coordinate_length);
+        let mut y_points = new_pos_slice(coordinate_length);
         for index_c in 0..coordinate_length {
-            x_points[index_c] = read_f64(&file_bytes, &mut index);
-            y_points[index_c] = read_f64(&file_bytes, &mut index);
+            x_points[index_c] = read_f64(&file_bytes, &mut index) as Pos;
+            y_points[index_c] = read_f64(&file_bytes, &mut index) as Pos;
         }
         add_geometry(id, max_x, min_x, max_y, min_y, x_points, y_points);
     }
@@ -116,12 +119,15 @@ pub fn computation() {
     stop_watch.elapsed_store("Node File Read");
     let nodes_size = read_i32(&file_bytes, &mut index);
     println!("Reading nodes {nodes_size}");
+    unsafe {
+        NODES = Some(ParallelList::new(nodes_size as usize))
+    }
     for _index in 0..nodes_size {
         let size = read_i32(&file_bytes, &mut index) as usize;
         let segment = &file_bytes[index..(index+size)];
         index += size;
         let node = Node::from_bytes(segment);
-        add_node(node.index as jint, node.position[0], node.position[1], 0 as jdouble, 0, node.connections);
+        add_node(node.index as jint, node.position[0] as jdouble, node.position[1] as jdouble, 0 as jdouble, 0, node.connections);
     }
     stop_watch.elapsed_store("Node Data To Memory");
     println!("Completed reading nodes");
@@ -164,7 +170,7 @@ fn add_graph_node_to_scene(window: &mut Window, node: &Node, color: &Point3<f32>
 }
 
 #[inline]
-fn add_point_to_scene(window: &mut Window, position: &Simd<f64, 2>) {
+fn add_point_to_scene(window: &mut Window, position: &Simd<Pos, 2>) {
     window.draw_point(
         &point(position[0], position[1]),
         &Point3::new(1f32, 1f32, 1f32),
@@ -172,7 +178,7 @@ fn add_point_to_scene(window: &mut Window, position: &Simd<f64, 2>) {
 }
 
 #[inline]
-fn point(x: f64, y: f64) -> Point3<f32> {
+fn point(x: Pos, y: Pos) -> Point3<f32> {
     Point3::new(0f32, y as f32 + Y_OFFSET, x as f32 + X_OFFSET)
 }
 
@@ -379,12 +385,9 @@ fn main() {
     unsafe {
         NODE_TREE = Some(create_tree(nodes));
         for traffic_light in traffic_lights {
-            match get_node_tree().find_data(traffic_light.position()) {
-                Some(data) => {
-                    let d = data.as_slice();
-                    NodeType::assign_types(traffic_light, d);
-                }
-                None => {}
+            if let Some(data) = get_node_tree().find_data(traffic_light.position()) {
+                let d = data.as_slice();
+                NodeType::assign_types(traffic_light, d);
             }
             
             counter += 1;
@@ -417,6 +420,7 @@ fn main() {
     let multiplier = range/difference;
     let closed = Arc::new(AtomicCell::new(false));
     let threaded_closed = closed.clone();
+    /*
     let join = spawn(move || unsafe {
         let mut timer = StopWatch::start();
         loop {
@@ -428,8 +432,8 @@ fn main() {
             sleep(Duration::from_millis(16))
         }
         timer.print_prefixed("Thread");
-    });
-/*
+    });*/
+
     let mut timer = StopWatch::start();
     loop {
         get_solver().compute_pre_find();
@@ -438,7 +442,7 @@ fn main() {
             break;
         }
     }
-    timer.print_prefixed("Thread");*/
+    timer.print_prefixed("Thread");
     let get_color = |speed: f64| -> Point3<f32> {
         let red = ((multiplier * (1f64 / 3f64) * (speed - min_speed)).clamp(0f64, 255f64) / 255f64) as f32;
         let green = ((multiplier * (1f64 / 3f64) * (max_speed - speed)).clamp(0f64, 255f64) / 255f64) as f32;
@@ -474,12 +478,12 @@ fn main() {
         timer.elapsed_store("Path Find");
         if display_nodes {
             get_solver().get_nodes()
-                .par_iter()
-                .filter(|x2| x2.get_mut().has_visited())
-                .collect::<Vec<_>>()
+                //.par_iter()
+                //.filter(|x2| x2.get_mut().has_visited())
+                //.collect::<Vec<_>>()
                 .iter()
                 .for_each(|x| {
-                    add_graph_node_to_scene(&mut window, x.get(), &get_color(match x.get_mut().node_type { 
+                    add_graph_node_to_scene(&mut window, x.get(), &get_color(match x.get_mut().node_type {
                         NodeType::Normal => 0f64,
                         NodeType::NearTrafficLight => 180f64,
                         NodeType::AtTrafficLight => 360f64
@@ -520,5 +524,5 @@ fn main() {
     unsafe {
         *closed.as_ptr().as_mut().unwrap() = true;
     }
-    join.join().expect("TODO: panic message");
+    //join.join().expect("TODO: panic message");
 }

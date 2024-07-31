@@ -9,6 +9,7 @@ use crate::node::{Connection, Node};
 use crate::parallel_list::ParallelList;
 use crate::solver::Solver;
 use crate::struts::{BoundarySIMD, Geometry, QuadTree, SimdPosition, SuperCell, TrafficLight};
+use crate::types::{Index, Pos};
 
 pub static mut GEOMETRIES : Vec<Geometry, 27922> = Vec::new();
 
@@ -21,8 +22,8 @@ pub static mut SOLVER : Option<Solver> = None;
 pub static mut NODE_TREE : Option<QuadTree<SuperCell<Node>>> = None;
 
 pub fn create_tree<T : SimdPosition + Sync>(values : &[SuperCell<T>]) -> QuadTree<SuperCell<T>> {
-    let mut min = Simd::from_array([90f64,90f64]);
-    let mut max = Simd::from_array([-90f64,-90f64]);
+    let mut min = Simd::from_array([90f64 as Pos,90f64 as Pos]);
+    let mut max = Simd::from_array([-90f64 as Pos,-90f64 as Pos]);
     let mut position;
     for value in values.iter() {
         position = *value.get().position();
@@ -47,9 +48,9 @@ pub fn create_tree<T : SimdPosition + Sync>(values : &[SuperCell<T>]) -> QuadTre
     }
     tree
 }
-const MULTIPLIER: Simd<f64, 2> = Simd::from_array([85.2952, 110.9480]);
+const MULTIPLIER: Simd<Pos, 2> = Simd::from_array([85295.2, 110948.0]);
 #[inline]
-pub fn distance(point1: &Simd<f64, 2>, point2: &Simd<f64, 2>) -> f64 {
+pub fn distance(point1: &Simd<Pos, 2>, point2: &Simd<Pos, 2>) -> Pos {
     let displacement = (point1 - point2)*MULTIPLIER;
     (displacement * displacement).reduce_sum().sqrt()
 }
@@ -82,19 +83,19 @@ pub fn get_node_tree() -> &'static mut QuadTree<'static, SuperCell<Node>> {
 pub fn add_node(id : jint, x : jdouble, y : jdouble, speed : jdouble, node_type : u8, connections : Box<[Connection]>) {
     let index = id as usize;
     let node = Node::new(
-        index as u32,
-        Simd::from_array([x, y]),
+        index as Index,
+        Simd::from_array([x as Pos, y as Pos]),
         connections
     );
     get_nodes().insert(node, index);
 }
 
 #[inline]
-pub fn add_geometry(id : jint, max_x : jdouble, min_x : jdouble, max_y : jdouble, min_y : jdouble, x_points : Box<[f64]>, y_points : Box<[f64]>) {
+pub fn add_geometry(id : jint, max_x : jdouble, min_x : jdouble, max_y : jdouble, min_y : jdouble, x_points : Box<[Pos]>, y_points : Box<[Pos]>) {
     let id = id as usize;
     let boundary = BoundarySIMD {
-        corner_max: Simd::from_array([max_x, max_y]),
-        corner_min: Simd::from_array([min_x, min_y])
+        corner_max: Simd::from_array([max_x as Pos, max_y as Pos]),
+        corner_min: Simd::from_array([min_x as Pos, min_y as Pos])
     };
     unsafe {
         let _ = GEOMETRIES.push(
@@ -113,7 +114,7 @@ pub fn add_traffic_light (id : jint, x : jdouble, y : jdouble) {
     unsafe {
         let _ = TRAFFIC_LIGHTS.push(TrafficLight {
             id,
-            position: Simd::from_array([x, y])
+            position: Simd::from_array([x as Pos, y as Pos])
         });
     }
 }
@@ -122,7 +123,10 @@ pub fn add_traffic_light (id : jint, x : jdouble, y : jdouble) {
 pub fn new_slice<T : Clone>(default : T, size: usize) -> Box<[T]> {
     vec![default; size].into_boxed_slice()
 }
-
+#[inline]
+pub fn new_pos_slice(size: usize) -> Box<[Pos]> {
+    new_slice(Default::default(), size)
+}
 #[inline]
 pub fn new_double_slice(size: usize) -> Box<[f64]> {
     new_slice(0f64, size)

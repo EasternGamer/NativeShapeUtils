@@ -20,8 +20,8 @@ use jni::signature::ReturnType;
 // lifetime checker won't let us.
 use jni::sys::{jboolean, jdouble, jint, jintArray, jsize, jvalue};
 use rayon::prelude::*;
-
-use crate::data::{add_geometry, add_node, add_traffic_light, get_nodes, new_double_slice, new_slice, SOLVER};
+use types::{Cost, Pos};
+use crate::data::{add_geometry, add_node, add_traffic_light, get_nodes, new_double_slice, new_pos_slice, new_slice, SOLVER};
 use crate::node::Connection;
 use crate::solver::Solver;
 use crate::struts::{BoundarySIMD, Geometry, TrafficLight};
@@ -33,6 +33,8 @@ pub mod solver;
 pub mod helper;
 pub mod parallel_list;
 pub mod node;
+mod types;
+
 #[no_mangle]
 pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_sendTrafficLight<'l>(_env: JNIEnv<'l>, _class: JClass<'l>,  id : jint, x : jdouble, y : jdouble) {
     add_traffic_light(id, x, y);
@@ -47,8 +49,8 @@ pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_getSuburbsInBo
     let result = data::get_geometry();
     let geometries = result.as_slice();
     let boundary = BoundarySIMD {
-        corner_max: Simd::from_array([max_x, max_y]),
-        corner_min : Simd::from_array([min_x, min_y])
+        corner_max: Simd::from_array([max_x as Pos, max_y as Pos]),
+        corner_min : Simd::from_array([min_x as Pos, min_y as Pos])
     };
     let time_delta_init = (start_time.elapsed().as_nanos() as f64)/1e6;
 
@@ -85,8 +87,8 @@ pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_getTrafficLigh
     let result = data::get_traffic_lights();
     let traffic_lights = result.as_slice();
     let boundary = BoundarySIMD {
-        corner_max : Simd::from_array([max_x, max_y]),
-        corner_min: Simd::from_array([min_x, min_y])
+        corner_max : Simd::from_array([max_x as Pos, max_y as Pos]),
+        corner_min: Simd::from_array([min_x as Pos, min_y as Pos])
     };
     let time_delta_init = (start_time.elapsed().as_nanos() as f64)/1e6;
 
@@ -138,8 +140,13 @@ pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_sendSuburb<'v>
     let mut y_points = new_double_slice(size);
     env.get_double_array_region(x_points_j, 0, x_points.as_mut()).expect("[Rust Binding] Critical Error! Unable to read array data of x points while sending geometry to rust.");
     env.get_double_array_region(y_points_j, 0, y_points.as_mut()).expect("[Rust Binding] Critical Error! Unable to read array data of y points while sending geometry to rust.");
-
-    add_geometry(id, max_x, min_x, max_y, min_y, x_points, y_points);
+    let mut x_point_pos = new_pos_slice(size);
+    let mut y_point_pos = new_pos_slice(size);
+    for index in 0..size {
+        x_point_pos[index] = x_points[index] as Pos;
+        y_point_pos[index] = y_points[index] as Pos;
+    }
+    add_geometry(id, max_x, min_x, max_y, min_y, x_point_pos, y_point_pos);
 }
 
 
@@ -154,11 +161,11 @@ pub extern "system" fn Java_io_github_easterngamer_ffi_FFISolver_sendRoadNode<'v
     let mut weights = new_slice(0f64, size);
     env.get_int_array_region(connections_j, 0, connections.as_mut()).expect("[Rust Binding] Critical Error! Unable to read array data of connections while sending node to rust.");
     env.get_double_array_region(weights_j, 0, weights.as_mut()).expect("[Rust Binding] Critical Error! Unable to read array data of weights while sending node to rust.");
-    let mut edges = new_slice(Connection {index: 0, cost:0f64}, size);
+    let mut edges = new_slice(Connection {index: 0, cost:0f64 as Cost}, size);
     for i in 0..size {
         edges[i] = Connection {
             index: connections[i] as u32,
-            cost: weights[i]
+            cost: weights[i] as Cost
         }
     }
     add_node(id, x_point, y_point, speed, node_type as u8, edges);
