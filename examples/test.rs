@@ -6,12 +6,13 @@
 extern crate core;
 extern crate pheap;
 
+use core::slice::SlicePattern;
 use std::fs::File;
 use std::io::Read;
-use std::process::exit;
 use std::simd::Simd;
 use std::sync::Arc;
-use std::time::Instant;
+use std::thread::{sleep, spawn};
+use std::time::{Duration, Instant};
 
 use crossbeam::atomic::AtomicCell;
 use jni::sys::{jdouble, jint};
@@ -23,19 +24,22 @@ use kiss3d::text::Font;
 use kiss3d::window::Window;
 use rayon::prelude::*;
 
-use crate::data::{add_geometry, add_node, add_traffic_light, get_node_tree, get_solver, new_double_slice, NODE_TREE, SOLVER};
-use crate::helper::{ByteConvertable, read_f64, read_i32, skip_i32, skip_string};
-use crate::lib::compute;
-use crate::lib::data::create_tree;
-use crate::solver::Solver;
-use crate::stop_watch::StopWatch;
-use crate::struts::{BoundarySIMD, Geometry, Node, QuadTree, RoadNode, SimdPosition, TrafficLight};
+use crate::data::*;
+use crate::helper::*;
+use crate::lib::*;
+use crate::node::*;
+use crate::solver::*;
+use crate::stop_watch::*;
+use crate::struts::*;
 
 #[path = "../src/lib.rs"]
 mod lib;
 
 #[path = "../src/data.rs"]
 mod data;
+
+#[path = "../src/node.rs"]
+mod node;
 
 #[path = "../src/struts.rs"]
 mod struts;
@@ -119,7 +123,9 @@ pub fn computation() {
     }
     stop_watch.elapsed_store("Node Data To Memory");
     println!("Completed reading nodes");
-    
+    let mut x : Loader<Node<RoadNode>> = Loader::new("cache\\nodes.dat");
+    let result = x.load().unwrap();
+    stop_watch.elapsed_store("Node Data P");
     let temp_geo = data::get_geometry();
     let temp_traffic = data::get_traffic_lights();
     let geometries = temp_geo.as_parallel_slice();
@@ -341,21 +347,21 @@ fn main() {
     let mut camera = FirstPerson::new_with_frustrum(70f32, 0.0001, 1000f32, Point3::new(0f32, 0f32, 0f32), Point3::new(1f32, 0f32, 0f32));
     camera.translate_mut(&Translation3::new(-15f32, 0f32, 0f32));
     let mut window = Window::new("Rust Debugging Viewer");
-    let temp_traffic_lights = data::get_traffic_lights();
+    let temp_traffic_lights = get_traffic_lights();
     let traffic_lights = temp_traffic_lights.as_slice();
 
 
-    let temp_geo = data::get_geometry();
+    let temp_geo = get_geometry();
     let geometries = temp_geo.as_slice();
 
-    let temp_nodes = data::get_nodes();
+    let temp_nodes = get_nodes();
     let nodes = temp_nodes.as_slice();
+    let mut counter = 0;
+    let mut last_percentage = 10000;
     timer.elapsed_store("Initial Setup");
 
     let mut search_speed: u32 = 100_000;
-    unsafe {
-        SOLVER = Some(Solver::new(nodes, 373729, 37887, search_speed))
-    }
+    
     {
         let geo_size = geometries.len();
         let node_size = nodes.len();
@@ -368,6 +374,25 @@ fn main() {
     timer.elapsed_store("Further initialization");
     unsafe {
         NODE_TREE = Some(create_tree(nodes));
+        for traffic_light in traffic_lights {
+            match get_node_tree().find_data(traffic_light.position()) {
+                Some(data) => {
+                    let d = data.as_slice();
+                    NodeType::assign_types(traffic_light, d);
+                }
+                None => {}
+            }
+            
+            counter += 1;
+            let percentage = (counter*100)/traffic_lights.len();
+            if last_percentage != percentage {
+                println!("Done {percentage}%");
+                last_percentage = percentage;
+            }
+        }
+    }
+    unsafe {
+        SOLVER = Some(Solver::new(nodes, 373729, 37887, search_speed))
     }
     timer.elapsed_store("Construct Tree");
     let mut display_traffic_lights = false;
@@ -390,7 +415,7 @@ fn main() {
     let multiplier = range/difference;
     let closed = Arc::new(AtomicCell::new(false));
     let threaded_closed = closed.clone();
-    /*let join = spawn(move || unsafe {
+    let join = spawn(move || unsafe {
         let mut timer = StopWatch::start();
         loop {
             get_solver().compute_pre_find();
@@ -401,8 +426,8 @@ fn main() {
             sleep(Duration::from_millis(16))
         }
         timer.print_prefixed("Thread");
-    });*/
-
+    });
+/*
     let mut timer = StopWatch::start();
     loop {
         get_solver().compute_pre_find();
@@ -411,8 +436,7 @@ fn main() {
             break;
         }
     }
-    timer.print_prefixed("Thread");
-    exit(0);
+    timer.print_prefixed("Thread");*/
     let get_color = |speed: f64| -> Point3<f32> {
         let red = ((multiplier * (1f64 / 3f64) * (speed - min_speed)).clamp(0f64, 255f64) / 255f64) as f32;
         let green = ((multiplier * (1f64 / 3f64) * (max_speed - speed)).clamp(0f64, 255f64) / 255f64) as f32;
@@ -490,5 +514,5 @@ fn main() {
     unsafe {
         *closed.as_ptr().as_mut().unwrap() = true;
     }
-    //join.join().expect("TODO: panic message");
+    join.join().expect("TODO: panic message");
 }

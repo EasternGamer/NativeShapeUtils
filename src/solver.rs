@@ -1,9 +1,11 @@
 use std::simd::prelude::SimdFloat;
 use std::simd::Simd;
-
+use std::time::{Instant, SystemTime};
+use chrono::{Timelike, Utc};
 use pheap::PairingHeap;
 use radix_heap::RadixHeapMap;
-
+use crate::data::distance;
+use crate::node::NodeType;
 use crate::struts::{HasIndex, Node, SimdPosition};
 
 const HOUR_TO_MIN : f64 = 60f64;
@@ -34,6 +36,7 @@ struct RadixNode {
 pub struct Solver<'solver, T> where T : Sync + Send + HasIndex {
     pub start_node : &'solver Node<T>,
     pub end_node : &'solver Node<T>,
+    pub avoid_traffic_lights : bool,
     pub total_iterations : u32,
     pub path : Option<(Box<[Simd<f64, 2>]>, f64)>,
     heap : RadixHeapMap<u32, &'solver Node<T>>,
@@ -41,20 +44,12 @@ pub struct Solver<'solver, T> where T : Sync + Send + HasIndex {
     direct_heap: PairingHeap<&'solver Node<T>, f64>,
     current_iteration : u32,
     max_iterations : u32,
-    nodes: &'solver [Node<T>]//,
-    //nodes_paring : [InitialNode; 17795851],
-    //nodes_radix : [RadixNode; 17795851]
+    nodes: &'solver [Node<T>]
 }
 const ASSUMED_SPEED : f64 = 90f64;
 #[inline]
 fn calculate_weight_optimal<T : SimdPosition>(node_1 : &Node<T>, node_2 : &Node<T>) -> f64 {
     distance(node_1.value.position(), node_2.value.position())/ASSUMED_SPEED
-}
-const MULTIPLIER: Simd<f64, 2> = Simd::from_array([85.2952, 110.9480]);
-#[inline]
-fn distance(point1: &Simd<f64, 2>, point2: &Simd<f64, 2>) -> f64 {
-    let displacement = (point1 - point2)*MULTIPLIER;
-    (displacement * displacement).reduce_sum().sqrt()
 }
 
 impl <'solver, T> Solver<'solver, T> where T : Sync + Send + HasIndex + SimdPosition {
@@ -64,6 +59,7 @@ impl <'solver, T> Solver<'solver, T> where T : Sync + Send + HasIndex + SimdPosi
              backup_heap : RadixHeapMap::new(),
              direct_heap: PairingHeap::new(),
              path : None,
+             avoid_traffic_lights : false,
              start_node : &nodes[start_node_index],
              end_node : &nodes[end_node_index],
              current_iteration : 0u32,
@@ -114,9 +110,14 @@ impl <'solver, T> Solver<'solver, T> where T : Sync + Send + HasIndex + SimdPosi
             self.backup_heap.clear();
         }
     }
+
+    const fn is_load_shedding(flag : u32, current_cost_time : f64) -> f64 {
+        (flag << (31 - current_cost_time as u32) >> 31) as f64
+    }
     
     fn compute_pairing_direct(&mut self) {
         let end_node_index = self.end_node.value.index() as u32;
+        let time_in_hour = Utc::now().time().minute() as f64/60f64;
         if !self.end_node.has_visited() {
             println!("Not visited");
             let mut visited = Vec::new();
@@ -125,11 +126,24 @@ impl <'solver, T> Solver<'solver, T> where T : Sync + Send + HasIndex + SimdPosi
             while !self.direct_heap.is_empty() && !found {
                 let current_node = self.direct_heap.delete_min().expect("Heap was not empty, but had nothing to pop.").0;
                 let local_cost = current_node.get_cost();
+                let time_offset_cost = time_in_hour + local_cost;
                 let new_node_length = current_node.get_connection_len() + 1;
                 let previous_index = current_node.value.index();
                 for connection in current_node.get_connections() {
                     let connected_node = &self.nodes[connection.index as usize];
-                    let new_local_cost = local_cost + connection.cost;
+                    let connection_cost =
+                        if self.avoid_traffic_lights {
+                            unsafe {
+                                match current_node.node_type.get().as_ref().expect("") {
+                                    NodeType::Normal => connection.cost,
+                                    NodeType::NearTrafficLight => connection.cost * 10f64 * Self::is_load_shedding(current_node.flag, time_offset_cost),
+                                    NodeType::AtTrafficLight => connection.cost * 20f64 * Self::is_load_shedding(current_node.flag, time_offset_cost)
+                                }
+                            }
+                        } else {
+                            connection.cost
+                        };
+                    let new_local_cost = local_cost + connection_cost;
                     found = connection.index == end_node_index;
                     if !found && !connected_node.has_visited() {
                         visited.push(connected_node);

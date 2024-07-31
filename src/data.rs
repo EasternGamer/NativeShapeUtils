@@ -12,7 +12,7 @@ use crate::struts::{BoundarySIMD, Connection, Geometry, Node, QuadTree, RoadNode
 
 pub static mut GEOMETRIES : Vec<Geometry, 27922> = Vec::new();
 
-pub static mut TRAFFIC_LIGHTS : Vec<TrafficLight, 14629> = Vec::new();
+pub static mut TRAFFIC_LIGHTS : Vec<TrafficLight, 14645> = Vec::new();
 
 pub static mut NODES : std::vec::Vec<Node<RoadNode>> = std::vec::Vec::new();
 
@@ -47,14 +47,19 @@ pub fn create_tree<T : SimdPosition + Sync>(values : &[T]) -> QuadTree<T> {
     }
     tree
 }
-
+const MULTIPLIER: Simd<f64, 2> = Simd::from_array([85.2952, 110.9480]);
+#[inline]
+pub fn distance(point1: &Simd<f64, 2>, point2: &Simd<f64, 2>) -> f64 {
+    let displacement = (point1 - point2)*MULTIPLIER;
+    (displacement * displacement).reduce_sum().sqrt()
+}
 #[inline]
 pub fn get_geometry() -> &'static Vec<Geometry, 27922> {
     unsafe { &*addr_of!(GEOMETRIES) }
 }
 
 #[inline]
-pub fn get_traffic_lights() -> &'static Vec<TrafficLight, 14629> {
+pub fn get_traffic_lights() -> &'static Vec<TrafficLight, 14645> {
     unsafe { &*addr_of!(TRAFFIC_LIGHTS) }
 }
 
@@ -74,7 +79,7 @@ pub fn get_node_tree() -> &'static mut QuadTree<'static, Node<RoadNode>> {
 }
 
 #[inline]
-pub fn add_node(id : jint, x : jdouble, y : jdouble, speed : jdouble, node_type : i32, connections : Box<[Connection]>) {
+pub fn add_node(id : jint, x : jdouble, y : jdouble, speed : jdouble, node_type : u8, connections : Box<[Connection]>) {
     let index = id as usize;
     let node = Node::new(
         RoadNode { 
@@ -82,7 +87,8 @@ pub fn add_node(id : jint, x : jdouble, y : jdouble, speed : jdouble, node_type 
             position: Simd::from_array([x, y]), 
             speed, 
             node_type 
-        }, 
+        },
+        u32::MAX,
         connections
     );
     unsafe {

@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io::Read;
 use std::marker::PhantomData;
 use std::path::Path;
-use std::slice::SliceIndex;
+use rayon::prelude::*;
 use crate::struts::HasIndex;
 use crate::parallel_list::ParallelList;
 
@@ -66,15 +66,21 @@ impl <'loader, T : ByteConvertable + HasIndex> Loader<'loader, T> {
     pub fn load_from_bytes(bytes : &[u8]) -> ParallelList<T> {
         let mut index = 0;
         let size = read_i32(bytes, &mut index) as usize;
-        let mut list = ParallelList::new(size);
+        let list = ParallelList::new(size);
+        let mut byte_array = Vec::with_capacity(size);
         for _ in 0..size {
             let type_size = read_i32(bytes, &mut index) as usize;
             let type_bytes = &bytes[index..(index+type_size)];
             index += type_size;
-            let data = T::from_bytes(type_bytes);
+            byte_array.push(type_bytes);
+        }
+        let block_size = size/12;
+        print!("{block_size}");
+        byte_array.into_par_iter().by_uniform_blocks(block_size).for_each(|x| {
+            let data = T::from_bytes(x);
             let index = data.index();
             list.insert(data, index);
-        }
+        });
         list
     }
     pub fn load(&self) -> Result<ParallelList<T>, String> {
