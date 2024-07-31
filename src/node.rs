@@ -1,7 +1,7 @@
 use core::slice::SlicePattern;
 use std::mem::MaybeUninit;
 use std::simd::Simd;
-use rayon::prelude::ParallelSlice;
+use rayon::prelude::*;
 use crate::data::distance;
 use crate::helper::{ByteConvertable, read_f64, read_i32, skip_f64, skip_i32};
 use crate::struts::{HasIndex, RoadNode, SimdPosition, SuperCell, TrafficLight};
@@ -15,7 +15,7 @@ pub enum NodeType {
 }
 impl NodeType {
     pub fn assign_types(traffic_light : &TrafficLight, nodes : &[&SuperCell<Node>]) {
-        nodes.as_parallel_slice().for_each(|node| {
+        nodes.as_parallel_slice().into_par_iter().for_each(|node| {
             let mutable_node = node.get_mut();
             match mutable_node.node_type {
                 NodeType::Normal => {

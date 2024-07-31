@@ -43,8 +43,8 @@ impl <T> ParallelList<T> {
 
 impl <T : Sync + Send> ParallelList<T> {
     #[inline]
-    pub fn get_slice_mut(&self) -> &mut [SuperCell<T>] { 
-        unsafe { MaybeUninit::slice_assume_init_mut(self.data.get_mut().as_parallel_slice_mut()) } 
+    pub fn get_slice_mut(&self) -> &mut [SuperCell<T>] {
+        unsafe { MaybeUninit::slice_assume_init_mut(self.data.get_mut().as_parallel_slice_mut()) }
     }
 }
 

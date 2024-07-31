@@ -2,6 +2,8 @@
 #![feature(duration_millis_float)]
 #![feature(slice_pattern)]
 #![feature(new_uninit)]
+#![feature(maybe_uninit_uninit_array)]
+#![feature(maybe_uninit_slice)]
 
 extern crate core;
 extern crate pheap;
