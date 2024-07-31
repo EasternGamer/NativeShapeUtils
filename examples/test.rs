@@ -5,7 +5,6 @@
 
 extern crate core;
 extern crate pheap;
-extern crate core;
 
 use core::slice::SlicePattern;
 use std::fs::File;
@@ -119,12 +118,12 @@ pub fn computation() {
         let size = read_i32(&file_bytes, &mut index) as usize;
         let segment = &file_bytes[index..(index+size)];
         index += size;
-        let node = Node::<RoadNode>::from_bytes(segment);
-        add_node(node.value.index as jint, node.value.position[0], node.value.position[1], node.value.speed, node.value.node_type, node.connections);
+        let node = Node::from_bytes(segment);
+        add_node(node.index as jint, node.position[0], node.position[1], 0 as jdouble, 0, node.connections);
     }
     stop_watch.elapsed_store("Node Data To Memory");
     println!("Completed reading nodes");
-    let mut x : Loader<Node<RoadNode>> = Loader::new("cache\\nodes.dat");
+    let mut x : Loader<Node> = Loader::new("cache\\nodes.dat");
     let result = x.load().unwrap();
     stop_watch.elapsed_store("Node Data P");
     let temp_geo = data::get_geometry();
@@ -154,8 +153,8 @@ fn add_traffic_light_to_scene(window: &mut Window, traffic_light: &TrafficLight)
 
 
 #[inline]
-fn add_graph_node_to_scene(window: &mut Window, node: &Node<RoadNode>, color: &Point3<f32>) {
-    let position = node.value.position;
+fn add_graph_node_to_scene(window: &mut Window, node: &Node, color: &Point3<f32>) {
+    let position = node.position;
     window.draw_point(
         &point(position[0], position[1]),
         color,
@@ -358,7 +357,7 @@ fn main() {
     let geometries = temp_geo.as_slice();
 
     let temp_nodes = get_nodes();
-    let nodes = temp_nodes.as_slice();
+    let nodes = temp_nodes.get_slice();
     let mut counter = 0;
     let mut last_percentage = 10000;
     timer.elapsed_store("Initial Setup");
@@ -409,10 +408,8 @@ fn main() {
     let found = Arc::new(AtomicCell::new(false));
     
     let threaded_found = found.clone();
-    let max_speed_node = get_solver().get_nodes().iter().max_by(|x1, x2| { x1.value.speed.total_cmp(&x2.value.speed) }).expect("");
-    let min_speed_node = get_solver().get_nodes().iter().min_by(|x1, x2| { x1.value.speed.total_cmp(&x2.value.speed) }).expect("");
-    let max_speed = max_speed_node.value.speed;
-    let min_speed = min_speed_node.value.speed;
+    let max_speed = 360f64;
+    let min_speed = 0f64;
     let difference = max_speed - min_speed;
     let range = 255f64*3f64;
     let multiplier = range/difference;
@@ -476,11 +473,15 @@ fn main() {
         if display_nodes {
             get_solver().get_nodes()
                 .par_iter()
-                .filter(|x2| x2.has_visited())
+                .filter(|x2| x2.get_mut().has_visited())
                 .collect::<Vec<_>>()
                 .iter()
                 .for_each(|x| {
-                    add_graph_node_to_scene(&mut window, x, &get_color(x.value.speed))
+                    add_graph_node_to_scene(&mut window, x.get(), &get_color(match x.get_mut().node_type { 
+                        NodeType::Normal => 0f64,
+                        NodeType::NearTrafficLight => 180f64,
+                        NodeType::AtTrafficLight => 360f64
+                    }))
                 });
             timer.elapsed_store("Visited Node Display");
         }

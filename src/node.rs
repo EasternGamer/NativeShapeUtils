@@ -1,10 +1,10 @@
 use core::slice::SlicePattern;
-use std::cell::{Cell, UnsafeCell};
+use std::mem::MaybeUninit;
 use std::simd::Simd;
-use crossbeam::atomic::AtomicCell;
-use rayon::prelude::*;
+use rayon::prelude::ParallelSlice;
 use crate::data::distance;
-use crate::struts::{HasIndex, SimdPosition, SuperCell, TrafficLight};
+use crate::helper::{ByteConvertable, read_f64, read_i32, skip_f64, skip_i32};
+use crate::struts::{HasIndex, RoadNode, SimdPosition, SuperCell, TrafficLight};
 
 #[derive(Debug, Eq, PartialEq)]
 #[repr(u8)]
@@ -14,8 +14,8 @@ pub enum NodeType {
     Normal = 0
 }
 impl NodeType {
-    pub fn assign_types<T : SimdPosition>(traffic_light : &TrafficLight, nodes : &[SuperCell<Node>]) {
-        nodes.into_par_iter().for_each(|node| {
+    pub fn assign_types(traffic_light : &TrafficLight, nodes : &[&SuperCell<Node>]) {
+        nodes.as_parallel_slice().for_each(|node| {
             let mutable_node = node.get_mut();
             match mutable_node.node_type {
                 NodeType::Normal => {
@@ -133,3 +133,30 @@ impl Node {
 }
 unsafe impl Send for Node {}
 unsafe impl Sync for Node {}
+
+impl ByteConvertable for Node {
+    fn from_bytes(byte_array: &[u8]) -> Self {
+        let mut index = 0;
+        let id = read_i32(byte_array, &mut index);
+        let x = read_f64(byte_array, &mut index);
+        let y = read_f64(byte_array, &mut index);
+        skip_f64(&mut index);
+        skip_i32(&mut index);
+        let connected_indices_size = read_i32(byte_array, &mut index) as usize;
+        let mut tmp_indices = Box::new_uninit_slice(connected_indices_size);
+        unsafe {
+            for index_c in 0..connected_indices_size {
+                tmp_indices[index_c] = MaybeUninit::new(Connection {
+                    index: read_i32(byte_array, &mut index) as u32,
+                    cost: read_f64(byte_array, &mut index)
+                });
+            }
+
+            Node::new(
+                id as u32,
+                Simd::from_array([x, y]),
+                tmp_indices.assume_init()
+            )
+        }
+    }
+}

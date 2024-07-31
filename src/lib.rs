@@ -5,7 +5,6 @@
 #![feature(maybe_uninit_uninit_array)]
 #![feature(maybe_uninit_slice)]
 extern crate core;
-extern crate core;
 
 use std::simd::*;
 use std::time::Instant;
@@ -23,8 +22,9 @@ use jni::sys::{jboolean, jdouble, jint, jintArray, jsize, jvalue};
 use rayon::prelude::*;
 
 use crate::data::{add_geometry, add_node, add_traffic_light, get_nodes, new_double_slice, new_slice, SOLVER};
+use crate::node::Connection;
 use crate::solver::Solver;
-use crate::struts::{BoundarySIMD, Connection, Geometry, TrafficLight};
+use crate::struts::{BoundarySIMD, Geometry, TrafficLight};
 
 pub mod struts;
 pub mod data;
@@ -117,7 +117,7 @@ pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_getTrafficLigh
 #[no_mangle]
 pub extern "system" fn Java_io_github_easterngamer_ffi_FFISolver_buildSolver<'l>(_env: JNIEnv<'l>, _class: JClass<'l>) {
     unsafe {
-        SOLVER = Some(Solver::new(get_nodes().as_slice(), 0, 0, 100_000))
+        SOLVER = Some(Solver::new(get_nodes().get_slice(), 0, 0, 100_000))
     }
 }
 

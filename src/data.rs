@@ -4,28 +4,28 @@ use std::simd::Simd;
 
 use heapless::Vec;
 use jni::sys::{jdouble, jint};
-use kiss3d::nalgebra::SimdBool;
 use rayon::prelude::*;
-
+use crate::node::{Connection, Node};
+use crate::parallel_list::ParallelList;
 use crate::solver::Solver;
-use crate::struts::{BoundarySIMD, Connection, Geometry, Node, QuadTree, RoadNode, SimdPosition, TrafficLight};
+use crate::struts::{BoundarySIMD, Geometry, QuadTree, SimdPosition, SuperCell, TrafficLight};
 
 pub static mut GEOMETRIES : Vec<Geometry, 27922> = Vec::new();
 
 pub static mut TRAFFIC_LIGHTS : Vec<TrafficLight, 14645> = Vec::new();
 
-pub static mut NODES : std::vec::Vec<Node<RoadNode>> = std::vec::Vec::new();
+pub static mut NODES : Option<ParallelList<Node>> = None;
 
-pub static mut SOLVER : Option<Solver<RoadNode>> = None;
+pub static mut SOLVER : Option<Solver> = None;
 
-pub static mut NODE_TREE : Option<QuadTree<Node<RoadNode>>> = None;
+pub static mut NODE_TREE : Option<QuadTree<SuperCell<Node>>> = None;
 
-pub fn create_tree<T : SimdPosition + Sync>(values : &[T]) -> QuadTree<T> {
+pub fn create_tree<T : SimdPosition + Sync>(values : &[SuperCell<T>]) -> QuadTree<SuperCell<T>> {
     let mut min = Simd::from_array([90f64,90f64]);
     let mut max = Simd::from_array([-90f64,-90f64]);
     let mut position;
     for value in values.iter() {
-        position = *value.position();
+        position = *value.get().position();
         if min.simd_gt(position).any() {
             min = min.simd_min(position);
         }
@@ -64,17 +64,17 @@ pub fn get_traffic_lights() -> &'static Vec<TrafficLight, 14645> {
 }
 
 #[inline]
-pub fn get_nodes() -> &'static std::vec::Vec<Node<RoadNode>> {
-    unsafe { &*addr_of!(NODES) }
+pub fn get_nodes() -> &'static ParallelList<Node> {
+    unsafe { NODES.as_ref().unwrap() }
 }
 
 #[inline]
-pub fn get_solver() -> &'static mut Solver<'static, RoadNode> {
+pub fn get_solver() -> &'static mut Solver<'static> {
     unsafe { SOLVER.as_mut().unwrap() }
 }
 
 #[inline]
-pub fn get_node_tree() -> &'static mut QuadTree<'static, Node<RoadNode>> {
+pub fn get_node_tree() -> &'static mut QuadTree<'static, SuperCell<Node>> {
     unsafe { NODE_TREE.as_mut().unwrap() }
 }
 
@@ -82,19 +82,11 @@ pub fn get_node_tree() -> &'static mut QuadTree<'static, Node<RoadNode>> {
 pub fn add_node(id : jint, x : jdouble, y : jdouble, speed : jdouble, node_type : u8, connections : Box<[Connection]>) {
     let index = id as usize;
     let node = Node::new(
-        RoadNode { 
-            index, 
-            position: Simd::from_array([x, y]), 
-            speed, 
-            node_type 
-        },
-        u32::MAX,
+        index as u32,
+        Simd::from_array([x, y]),
         connections
     );
-    unsafe {
-        NODES.push(node);
-    }
-    
+    get_nodes().insert(node, index);
 }
 
 #[inline]

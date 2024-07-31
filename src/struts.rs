@@ -25,6 +25,16 @@ pub struct SuperCell<T : ?Sized> {
     value : UnsafeCell<T>
 }
 
+impl <T : SimdPosition> SimdPosition for SuperCell<T> {
+    #[inline]
+    fn position(&self) -> &Simd<f64, 2> {
+        self.get().position()
+    }
+}
+
+unsafe impl <T> Sync for SuperCell<T> {}
+unsafe impl <T> Send for SuperCell<T> {}
+
 impl <T> SuperCell<T> {
     #[inline]
     pub const fn new(value : T) -> Self {
@@ -411,37 +421,6 @@ impl ByteConvertable for TrafficLight {
         Self {
             id : id as usize,
             position : Simd::from_array([x, y])
-        }
-    }
-}
-impl ByteConvertable for Node<RoadNode> {
-    fn from_bytes(byte_array: &[u8]) -> Self {
-        let mut index = 0;
-        let id = read_i32(byte_array, &mut index);
-        let x = read_f64(byte_array, &mut index);
-        let y = read_f64(byte_array, &mut index);
-        let speed = read_f64(byte_array, &mut index);
-        let node_type = read_i32(byte_array, &mut index) as u8;
-        let connected_indices_size = read_i32(byte_array, &mut index) as usize;
-        let mut tmp_indices = Box::new_uninit_slice(connected_indices_size);
-        unsafe {
-            for index_c in 0..connected_indices_size {
-                tmp_indices[index_c] = MaybeUninit::new(Connection {
-                    index: read_i32(byte_array, &mut index) as u32,
-                    cost: read_f64(byte_array, &mut index)
-                });
-            }
-
-            Node::new(
-                RoadNode {
-                    index: id as usize,
-                    position: Simd::from_array([x, y]),
-                    speed,
-                    node_type,
-                },
-                u32::MAX,
-                tmp_indices.assume_init()
-            )
         }
     }
 }
