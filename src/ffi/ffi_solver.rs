@@ -20,11 +20,9 @@ pub extern "system" fn Java_io_github_easterngamer_ffi_FFISolver_sendNodes<'l> (
 pub extern "system" fn Java_io_github_easterngamer_ffi_FFISolver_updateTrafficLightFlags<'l> (env: JNIEnv<'l>, _class: JClass<'l>, data : JIntArray<'l>) {
     let mut flags = new_slice(0i32, env.get_array_length(&data).expect("") as usize);
     env.get_int_array_region(&data, 0, &mut flags).expect("Failed to load byte array for traffic lights");
-    let mut index = 0;
     let traffic_lights = get_traffic_lights().get_slice_mut();
-    for flag in flags {
-        traffic_lights[index].get_mut().flag = flag as Flag;
-        index += 1;
+    for (index, flag) in flags.iter().enumerate() {
+        traffic_lights[index].get_mut().flag = *flag as Flag;
     }
     associate_traffic_lights_to_nodes();
 }

@@ -12,7 +12,6 @@ use std::simd::*;
 use std::simd::cmp::SimdPartialOrd;
 use std::simd::num::SimdFloat;
 
-use jni::objects::AsJArrayRaw;
 use jni::sys::jint;
 use rayon::prelude::*;
 
