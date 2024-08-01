@@ -2,8 +2,8 @@ use std::simd::Simd;
 use std::mem::MaybeUninit;
 use core::slice::SlicePattern;
 use crate::loader::{read_f64, read_i32, skip_f64, skip_i32};
-use crate::objects::solver::connection::Connection;
-use crate::objects::solver::node_type::NodeType;
+use crate::objects::pathing::connection::Connection;
+use crate::objects::pathing::node_type::NodeType;
 use crate::traits::{ByteConvertable, Indexable, Positional};
 use crate::types::{Cost, Flag, Index, Pos};
 
@@ -17,35 +17,6 @@ pub struct Node {
     pub position : Simd<Pos, 2>,
     pub connections : Box<[Connection]>
 }
-
-impl Clone for Node {
-    fn clone(&self) -> Self {
-        Self {
-            index : self.index,
-            cost : self.cost,
-            flag : self.flag,
-            position : self.position,
-            previous : self.previous,
-            connection_len: self.connection_len,
-            node_type: self.node_type,
-            connections: self.connections.clone(),
-        }
-    }
-}
-
-impl Positional for Node {
-    #[inline]
-    fn position(&self) -> &Simd<Pos, 2> {
-        &self.position
-    }
-}
-
-impl Indexable for Node {
-    fn index(&self) -> usize {
-        self.index as usize
-    }
-}
-
 impl Node {
     #[inline]
     pub fn new(index: Index, position: Simd<Pos, 2>, connections: Box<[Connection]>) -> Self {
@@ -136,5 +107,33 @@ impl ByteConvertable for Node {
                 tmp_indices.assume_init()
             )
         }
+    }
+}
+
+impl Clone for Node {
+    fn clone(&self) -> Self {
+        Self {
+            index : self.index,
+            cost : self.cost,
+            flag : self.flag,
+            position : self.position,
+            previous : self.previous,
+            connection_len: self.connection_len,
+            node_type: self.node_type,
+            connections: self.connections.clone(),
+        }
+    }
+}
+
+impl Positional for Node {
+    #[inline]
+    fn position(&self) -> &Simd<Pos, 2> {
+        &self.position
+    }
+}
+
+impl Indexable for Node {
+    fn index(&self) -> usize {
+        self.index as usize
     }
 }

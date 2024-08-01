@@ -1,12 +1,13 @@
 use std::simd::Simd;
 use std::thread::spawn;
+
 use jni::JNIEnv;
 use jni::objects::{JByteArray, JClass, JIntArray};
 use jni::sys::{jdouble, jint, jsize};
-use crate::{add_nodes, add_solver, associate_traffic_lights_to_nodes, build_node_tree, distance, get_closest_node, get_node_tree, get_nodes, get_solver, get_traffic_lights, new_slice};
+
+use crate::{add_nodes, add_solver, associate_traffic_lights_to_nodes, build_node_tree, get_closest_node, get_nodes, get_solver, get_traffic_lights, new_slice};
 use crate::loader::load_from_bytes;
-use crate::objects::solver::solver::Solver;
-use crate::traits::{Indexable, Positional};
+use crate::objects::pathing::solver::Solver;
 use crate::types::{Flag, Pos};
 
 #[no_mangle]

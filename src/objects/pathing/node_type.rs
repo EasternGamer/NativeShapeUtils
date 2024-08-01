@@ -1,7 +1,7 @@
 use rayon::prelude::ParallelSlice;
 use rayon::iter::{IntoParallelIterator, ParallelIterator};
 use crate::distance;
-use crate::objects::solver::node::Node;
+use crate::objects::pathing::node::Node;
 use crate::objects::traffic_light::TrafficLight;
 use crate::objects::util::super_cell::SuperCell;
 use crate::traits::Positional;

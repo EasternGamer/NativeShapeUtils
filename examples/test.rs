@@ -11,7 +11,7 @@ use jni::sys::jint;
 
 use crate::lib::*;
 use crate::lib::debug_window::start_window;
-use crate::lib::objects::solver::solver::Solver;
+use crate::lib::objects::pathing::solver::Solver;
 use crate::lib::objects::util::stop_watch::StopWatch;
 use crate::loader::*;
 

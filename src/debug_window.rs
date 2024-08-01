@@ -14,8 +14,8 @@ use rayon::prelude::*;
 
 use crate::{get_node_tree, get_nodes, get_solver, get_suburbs, get_traffic_lights};
 use crate::objects::boundary::Boundary;
-use crate::objects::solver::node::Node;
-use crate::objects::solver::node_type::NodeType;
+use crate::objects::pathing::node::Node;
+use crate::objects::pathing::node_type::NodeType;
 use crate::objects::suburb::Suburb;
 use crate::objects::traffic_light::TrafficLight;
 use crate::objects::util::quad_tree::QuadTree;

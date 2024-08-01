@@ -9,23 +9,24 @@
 extern crate core;
 
 use std::simd::*;
-use jni::objects::AsJArrayRaw;
-use rayon::prelude::*;
-use jni::sys::{jdouble, jint};
-use std::ptr::addr_of;
 use std::simd::cmp::SimdPartialOrd;
 use std::simd::num::SimdFloat;
-use std::thread::spawn;
+
+use jni::objects::AsJArrayRaw;
+use jni::sys::jint;
+use rayon::prelude::*;
+
 use objects::boundary::Boundary;
+use objects::pathing::node::Node;
+use objects::pathing::solver::Solver;
+use objects::suburb::Suburb;
+use objects::traffic_light::TrafficLight;
+use objects::util::parallel_list::ParallelList;
 use objects::util::quad_tree::QuadTree;
 use objects::util::super_cell::SuperCell;
-use objects::traffic_light::TrafficLight;
 use traits::Positional;
-use objects::solver::node::Node;
-use objects::util::parallel_list::ParallelList;
-use objects::solver::solver::Solver;
-use objects::suburb::Suburb;
-use crate::objects::solver::node_type::NodeType;
+
+use crate::objects::pathing::node_type::NodeType;
 use crate::traits::Indexable;
 use crate::types::{Index, Pos};
 

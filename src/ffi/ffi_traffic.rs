@@ -1,12 +1,14 @@
 use std::simd::Simd;
 use std::time::Instant;
+
 use jni::JNIEnv;
 use jni::objects::{AsJArrayRaw, JByteArray, JClass};
 use jni::signature::Primitive::Void;
 use jni::signature::ReturnType;
 use jni::sys::{jboolean, jdouble, jint, jintArray, jsize, jvalue};
 use rayon::prelude::ParallelSlice;
-use crate::{add_suburbs, add_traffic_lights, compute, get_suburbs, get_traffic_lights, new_double_slice, new_pos_slice};
+
+use crate::{add_suburbs, add_traffic_lights, compute, get_suburbs, get_traffic_lights};
 use crate::loader::load_from_bytes;
 use crate::objects::boundary::Boundary;
 use crate::types::Pos;
