@@ -26,18 +26,20 @@ impl NodeType {
                 NodeType::Normal => {
                     let distance = distance(&traffic_light.position, mutable_node.position());
                     if distance < AT_TRAFFIC_LIGHT_THRESHOLD {
-                        mutable_node.node_type = NodeType::AtTrafficLight
+                        mutable_node.node_type = NodeType::AtTrafficLight;
                     } else if distance < NEAR_TRAFFIC_LIGHT_THRESHOLD {
-                        mutable_node.node_type = NodeType::NearTrafficLight
+                        mutable_node.node_type = NodeType::NearTrafficLight;
                     }
+                    mutable_node.flag = traffic_light.flag;
                 },
                 NodeType::NearTrafficLight => {
                     let distance = distance(&traffic_light.position, mutable_node.position());
                     if distance < AT_TRAFFIC_LIGHT_THRESHOLD {
-                        mutable_node.node_type = NodeType::AtTrafficLight
+                        mutable_node.node_type = NodeType::AtTrafficLight;
                     }
+                    mutable_node.flag = traffic_light.flag;
                 },
-                NodeType::AtTrafficLight => {}
+                NodeType::AtTrafficLight => { mutable_node.flag = traffic_light.flag; }
             }
         });
     }

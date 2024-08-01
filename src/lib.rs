@@ -15,6 +15,7 @@ use jni::sys::{jdouble, jint};
 use std::ptr::addr_of;
 use std::simd::cmp::SimdPartialOrd;
 use std::simd::num::SimdFloat;
+use std::thread::spawn;
 use objects::boundary::Boundary;
 use objects::util::quad_tree::QuadTree;
 use objects::util::super_cell::SuperCell;
@@ -23,19 +24,24 @@ use traits::Positional;
 use objects::solver::node::Node;
 use objects::util::parallel_list::ParallelList;
 use objects::solver::solver::Solver;
-use objects::suburb::Geometry;
-use crate::types::Pos;
+use objects::suburb::Suburb;
+use crate::objects::solver::node_type::NodeType;
+use crate::traits::Indexable;
+use crate::types::{Index, Pos};
 
 pub mod loader;
 pub mod types;
 pub mod ffi;
 pub mod traits;
 pub mod objects;
+pub mod debug_window;
 
-pub static mut GEOMETRIES : heapless::Vec<Geometry, 27922> = heapless::Vec::new();
+const MULTIPLIER: Simd<Pos, 2> = Simd::from_array([85295.2, 110948.0]);
+
+pub static mut SOLVER : Option<Solver> = None;
+pub static mut SUBURBS: Option<ParallelList<Suburb>> = None;
 pub static mut TRAFFIC_LIGHTS : Option<ParallelList<TrafficLight>> = None;
 pub static mut NODES : Option<ParallelList<Node>> = None;
-pub static mut SOLVER : Option<Solver> = None;
 pub static mut NODE_TREE : Option<QuadTree<SuperCell<Node>>> = None;
 
 pub fn create_tree<T : Positional + Sync>(values : &[SuperCell<T>]) -> QuadTree<SuperCell<T>> {
@@ -66,7 +72,14 @@ pub fn create_tree<T : Positional + Sync>(values : &[SuperCell<T>]) -> QuadTree<
     tree
 }
 
-const MULTIPLIER: Simd<Pos, 2> = Simd::from_array([85295.2, 110948.0]);
+pub fn associate_traffic_lights_to_nodes() {
+    for traffic_light in get_traffic_lights().as_slice() {
+        if let Some(data) = get_node_tree().find_data(traffic_light.position()) {
+            let d = data.as_slice();
+            NodeType::assign_types(traffic_light, d);
+        }
+    }
+}
 
 #[inline]
 pub fn distance(point1: &Simd<Pos, 2>, point2: &Simd<Pos, 2>) -> Pos {
@@ -75,25 +88,21 @@ pub fn distance(point1: &Simd<Pos, 2>, point2: &Simd<Pos, 2>) -> Pos {
 }
 
 #[inline]
-pub fn get_geometry() -> &'static heapless::Vec<Geometry, 27922> {
-    unsafe { &*addr_of!(GEOMETRIES) }
+pub fn get_suburbs() -> &'static ParallelList<Suburb> {
+    unsafe { SUBURBS.as_ref().unwrap() }
 }
-
 #[inline]
 pub fn get_traffic_lights() -> &'static ParallelList<TrafficLight> {
     unsafe { TRAFFIC_LIGHTS.as_ref().unwrap() }
 }
-
 #[inline]
 pub fn get_nodes() -> &'static ParallelList<Node> {
     unsafe { NODES.as_ref().unwrap() }
 }
-
 #[inline]
 pub fn get_solver() -> &'static mut Solver<'static> {
     unsafe { SOLVER.as_mut().unwrap() }
 }
-
 #[inline]
 pub fn get_node_tree() -> &'static mut QuadTree<'static, SuperCell<Node>> {
     unsafe { NODE_TREE.as_mut().unwrap() }
@@ -106,61 +115,66 @@ pub fn add_traffic_lights(traffic_lights: ParallelList<TrafficLight>) {
 pub fn add_nodes(nodes: ParallelList<Node>) {
     unsafe { NODES = Some(nodes);}
 }
-
 #[inline]
-pub fn add_geometry(id : jint, max_x : jdouble, min_x : jdouble, max_y : jdouble, min_y : jdouble, x_points : Box<[Pos]>, y_points : Box<[Pos]>) {
-    let id = id as usize;
-    let boundary = Boundary {
-        corner_max: Simd::from_array([max_x as Pos, max_y as Pos]),
-        corner_min: Simd::from_array([min_x as Pos, min_y as Pos])
-    };
+pub fn add_suburbs(suburbs : ParallelList<Suburb>) {
     unsafe {
-        let _ = GEOMETRIES.push(
-            Geometry {
-                id,
-                x_points,
-                y_points,
-                boundary
-            });
+        SUBURBS = Some(suburbs);
+    }
+}
+#[inline]
+pub fn add_solver(solver: Solver<'static>) {
+    unsafe {
+        SOLVER = Some(solver);
+    }
+}
+#[inline]
+pub fn build_node_tree() {
+    unsafe {
+        NODE_TREE = Some(create_tree(get_nodes().get_slice()));
     }
 }
 
-
+pub fn get_closest_node(position : &Simd<Pos, 2>) -> Index {
+    let mut closest = None;
+    let mut current_distance = Pos::MAX;
+    if let Some(list) = get_node_tree().find_data(&position) {
+        for cell in list {
+            let cell_distance = distance(cell.position(), &position);
+            if current_distance > cell_distance {
+                current_distance = cell_distance;
+                closest = Some(cell);
+            }
+        }
+    }
+    closest.expect("Could not find cell").get().index() as Index
+}
 
 #[inline]
 pub fn new_slice<T : Clone>(default : T, size: usize) -> Box<[T]> {
     vec![default; size].into_boxed_slice()
 }
-
 #[inline]
 pub fn new_pos_slice(size: usize) -> Box<[Pos]> {
     new_slice(Default::default(), size)
 }
-
 #[inline]
 pub fn new_double_slice(size: usize) -> Box<[f64]> {
     new_slice(0f64, size)
 }
-
-#[allow(dead_code)]
 #[inline]
 pub fn new_usize_slice(size: usize) -> Box<[usize]> {
     new_slice(0usize, size)
 }
-
-#[allow(dead_code)]
 #[inline]
 pub fn new_u8_slice(size: usize) -> Box<[u8]> {
     new_slice(0u8, size)
 }
 
 #[inline]
-pub fn compute(geometries : &[Geometry], traffic_lights: &[TrafficLight]) -> Vec<(jint, jint)> {
-    //let block_size = geometries.len()/12;
+pub fn compute(geometries : &[Suburb], traffic_lights: &[TrafficLight]) -> Vec<(jint, jint)> {
     geometries
         .par_iter()
-        //.by_uniform_blocks(block_size)
-        .flat_map_iter(|geometry: &Geometry| {
+        .flat_map_iter(|geometry: &Suburb| {
             traffic_lights.iter()
                 .filter(|traffic_light| geometry.is_inside(&traffic_light.position))
                 .map(|traffic_light: &TrafficLight| (traffic_light.id as jint, geometry.id as jint))

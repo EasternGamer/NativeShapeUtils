@@ -1,12 +1,13 @@
 use std::simd::Simd;
 use crate::loader::{read_f64, read_i32, skip_i32};
 use crate::traits::{ByteConvertable, Indexable, Positional};
-use crate::types::{Index, Pos};
+use crate::types::{Flag, Index, Pos};
 
 #[derive(Clone, Copy)]
 pub struct TrafficLight {
     pub id : Index,
-    pub position: Simd<Pos, 2>
+    pub position: Simd<Pos, 2>,
+    pub flag : Flag
 }
 
 impl Indexable for TrafficLight {
@@ -33,7 +34,8 @@ impl ByteConvertable for TrafficLight {
         let y = read_f64(byte_array, &mut index) as Pos;
         Self {
             id : id as usize,
-            position : Simd::from_array([x, y])
+            position : Simd::from_array([x, y]),
+            flag : Flag::MAX
         }
     }
 }

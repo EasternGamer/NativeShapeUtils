@@ -6,7 +6,7 @@ use jni::signature::Primitive::Void;
 use jni::signature::ReturnType;
 use jni::sys::{jboolean, jdouble, jint, jintArray, jsize, jvalue};
 use rayon::prelude::ParallelSlice;
-use crate::{add_geometry, add_traffic_lights, compute, get_geometry, get_traffic_lights, new_double_slice, new_pos_slice};
+use crate::{add_suburbs, add_traffic_lights, compute, get_suburbs, get_traffic_lights, new_double_slice, new_pos_slice};
 use crate::loader::load_from_bytes;
 use crate::objects::boundary::Boundary;
 use crate::types::Pos;
@@ -19,19 +19,8 @@ pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_sendTrafficLig
 
 #[no_mangle]
 pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_sendSuburbs<'l> (env: JNIEnv<'l>, _class: JClass<'l>, data : JByteArray<'l>) {
-    let size = env.get_array_length(&x_points_j).expect("[Rust Binding] Critical Error! Unable to read array length of points while sending geometry to rust.") as usize;
-
-    let mut x_points= new_double_slice(size);
-    let mut y_points = new_double_slice(size);
-    env.get_double_array_region(x_points_j, 0, x_points.as_mut()).expect("[Rust Binding] Critical Error! Unable to read array data of x points while sending geometry to rust.");
-    env.get_double_array_region(y_points_j, 0, y_points.as_mut()).expect("[Rust Binding] Critical Error! Unable to read array data of y points while sending geometry to rust.");
-    let mut x_point_pos = new_pos_slice(size);
-    let mut y_point_pos = new_pos_slice(size);
-    for index in 0..size {
-        x_point_pos[index] = x_points[index] as Pos;
-        y_point_pos[index] = y_points[index] as Pos;
-    }
-    add_geometry(id, max_x, min_x, max_y, min_y, x_point_pos, y_point_pos);
+    let bytes = env.convert_byte_array(&data).expect("Failed to load byte array for traffic lights");
+    add_suburbs(load_from_bytes(bytes.as_slice()))
 }
 
 #[no_mangle]
@@ -40,7 +29,7 @@ pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_getSuburbsInBo
                                                                                                  max_y : jdouble, min_y : jdouble,
                                                                                                  limit : jint, debug : jboolean) -> jintArray {
     let start_time = Instant::now();
-    let result = get_geometry();
+    let result = get_suburbs();
     let geometries = result.as_slice();
     let boundary = Boundary {
         corner_max: Simd::from_array([max_x as Pos, max_y as Pos]),
@@ -116,7 +105,7 @@ pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_compute<'l>(mu
     let start_time_pre = Instant::now();
 
     let method_id = env.get_static_method_id(&class, "receiveTrafficLight", "(II)V").expect("Something went wrong getting static method");
-    let temp_geo = get_geometry();
+    let temp_geo = get_suburbs();
     let temp_traffic = get_traffic_lights();
     let geometries = temp_geo.as_slice().as_parallel_slice();
     let traffic_lights = temp_traffic.as_slice();

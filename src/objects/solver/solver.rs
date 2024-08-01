@@ -7,7 +7,7 @@ use crate::objects::solver::node::Node;
 use crate::objects::solver::node_type::NodeType;
 use crate::objects::util::super_cell::SuperCell;
 use crate::traits::{Indexable, Positional};
-use crate::types::{Cost, Pos};
+use crate::types::{Cost, Index, Pos};
 
 const HOUR_TO_MIN : f64 = 60f64;
 const HOUR_TO_SEC : f64 = HOUR_TO_MIN*60f64;
@@ -20,11 +20,11 @@ const MAX_TIME : u32 = MAX_TIME_S;
 const CONVERSION_FACTOR : Cost = HOUR_TO_SEC as Cost;
 
 pub struct Solver<'solver> {
-    pub start_node : &'solver SuperCell<Node>,
-    pub end_node : &'solver SuperCell<Node>,
-    pub avoid_traffic_lights : bool,
-    pub total_iterations : u32,
-    pub path : Option<(Box<[Simd<Pos, 2>]>, Cost)>,
+    start_node : &'solver SuperCell<Node>,
+    end_node : &'solver SuperCell<Node>,
+    avoid_traffic_lights : bool,
+    total_iterations : u32,
+    path : Option<(Box<[Index]>, Cost)>,
     heap : RadixHeapMap<u32, &'solver SuperCell<Node>>,
     backup_heap : RadixHeapMap<u32, &'solver SuperCell<Node>>,
     direct_heap: PairingHeap<&'solver SuperCell<Node>, Cost>,
@@ -42,7 +42,7 @@ fn calculate_weight_optimal(node_1 : &Node, node_2 : &Node) -> Pos {
 
 impl <'solver> Solver<'solver>  {
     pub fn new(nodes : &'solver [SuperCell<Node>], start_node_index : usize, end_node_index : usize, max_iterations : u32) -> Self {
-         Self {
+         let mut new = Self {
              heap : RadixHeapMap::new(),
              backup_heap : RadixHeapMap::new(),
              direct_heap: PairingHeap::new(),
@@ -54,7 +54,9 @@ impl <'solver> Solver<'solver>  {
              total_iterations : 0u32,
              max_iterations,
              nodes
-        }
+        };
+        new.start();
+        new
     }
 
     pub fn start(&mut self) {
@@ -72,7 +74,7 @@ impl <'solver> Solver<'solver>  {
     pub fn update_search_speed(&mut self, new_speed : u32) {
         self.max_iterations = new_speed;
     }
-    
+
     pub fn update_search(&mut self, start_node_index : usize, end_node_index : usize) {
         self.start_node = &self.nodes[start_node_index];
         self.end_node = &self.nodes[end_node_index];
@@ -102,7 +104,7 @@ impl <'solver> Solver<'solver>  {
     const fn is_load_shedding(flag : u32, current_cost_time : Cost) -> Cost {
         (flag << (31 - current_cost_time as u32) >> 31) as Cost
     }
-    
+
     fn compute_pairing_direct(&mut self) {
         let end_node_index = self.end_node.get().index() as u32;
         let time_in_hour = (Utc::now().time().minute() as f64/60f64) as Cost;
@@ -145,7 +147,7 @@ impl <'solver> Solver<'solver>  {
             self.start_node.get_mut().set_cost(0f64 as Cost);
         }
     }
-    
+
     fn compute_radix(&mut self) {
         let end_node_index = self.end_node.get().index() as u32;
         let time_in_hour = (Utc::now().time().minute() as f64/60f64) as Cost;
@@ -189,6 +191,17 @@ impl <'solver> Solver<'solver>  {
         }
     }
     
+    pub fn get_path_as_indices(&self) -> &Option<(Box<[Index]>, Cost)> {
+        &self.path
+    }
+
+    pub fn get_path_as_positions(&self) -> Option<(Box<[Simd<Pos, 2>]>, Cost)> {
+        self.path.as_ref().map(|data| {
+            let positions : Vec<Simd<Pos, 2>> = data.0.iter().map(|index| {self.nodes[*index as usize].get().position}).collect();
+            (positions.into_boxed_slice(), data.1)
+        })
+    }
+
     pub fn compute_pre_find(&mut self) {
         self.compute_pairing_direct();
         self.compute_radix();
@@ -207,13 +220,13 @@ impl <'solver> Solver<'solver>  {
             self.path = Some((self.backtrack(), self.end_node.get_mut().get_cost()))
         }
     }
-    
-    pub fn backtrack(&self) -> Box<[Simd<Pos, 2>]> {
+
+    pub fn backtrack(&self) -> Box<[Index]> {
         let length = self.end_node.get_mut().get_connection_len() as usize;
         let mut path = Vec::with_capacity(length);
         let mut previous_node = self.end_node;
         for _ in 0..(length-1) {
-            path.push(*previous_node.get().position());
+            path.push(previous_node.get().index);
             let previous_index = previous_node.get_mut().get_previous();
             if previous_index != u32::MAX {
                 previous_node = &self.nodes[previous_index as usize];
@@ -221,7 +234,7 @@ impl <'solver> Solver<'solver>  {
                 break;
             }
         }
-        path.push(*previous_node.get().position());
+        path.push(previous_node.get().index);
         path.into_boxed_slice()
     }
 

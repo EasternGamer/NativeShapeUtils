@@ -1,8 +1,8 @@
 cargo-features = ["profile-rustflags"]
 
 [package]
-name = "NativeShapeUtils"
-version = "0.1.0"
+name = "RustFFI"
+version = "1.0.0"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -29,6 +29,6 @@ crossbeam = "0.8.4"
 chrono = "0.4.38"
 
 [lib]
-name = "NativeShapeUtils"
+name = "RustFFI"
 crate-type = ["cdylib"]
 test = true
