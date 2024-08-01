@@ -13,7 +13,8 @@ use std::fs::File;
 use std::io::Read;
 use std::simd::Simd;
 use std::sync::Arc;
-use std::time::Instant;
+use std::thread::{sleep, spawn};
+use std::time::{Duration, Instant};
 
 use crossbeam::atomic::AtomicCell;
 use jni::sys::{jdouble, jint};
@@ -24,14 +25,18 @@ use kiss3d::ncollide3d::math::Translation;
 use kiss3d::text::Font;
 use kiss3d::window::Window;
 use rayon::prelude::*;
+use NativeShapeUtils::objects::boundary::Boundary;
+use NativeShapeUtils::objects::solver::node::Node;
+use NativeShapeUtils::objects::solver::node_type::NodeType;
+use NativeShapeUtils::objects::util::quad_tree::QuadTree;
+use NativeShapeUtils::objects::solver::solver::Solver;
+use NativeShapeUtils::objects::suburb::Geometry;
+use NativeShapeUtils::objects::traffic_light::TrafficLight;
+use NativeShapeUtils::objects::util::stop_watch::StopWatch;
+use NativeShapeUtils::traits::Positional;
 use crate::data::*;
-use crate::helper::*;
+use crate::loader::*;
 use crate::lib::*;
-use crate::node::*;
-use crate::parallel_list::ParallelList;
-use crate::solver::*;
-use crate::stop_watch::*;
-use crate::struts::*;
 use crate::types::Pos;
 
 #[path = "../src/lib.rs"]
@@ -52,8 +57,8 @@ mod stop_watch;
 #[path = "../src/solver.rs"]
 mod solver;
 
-#[path = "../src/helper.rs"]
-mod helper;
+#[path = "loader.rs"]
+mod loader;
 
 #[path = "../src/parallel_list.rs"]
 mod parallel_list;
@@ -111,31 +116,14 @@ pub fn computation() {
     }
     println!("Completed reading geometry");
     stop_watch.elapsed_store("Suburb Data to Memory");
-
-    let f = &mut File::open("cache\\nodes.dat").expect("No nodes file not found");
-    index = 0;
-    file_bytes.clear();
-    f.read_to_end(&mut file_bytes).expect("Really Bad");
-    stop_watch.elapsed_store("Node File Read");
-    let nodes_size = read_i32(&file_bytes, &mut index);
-    println!("Reading nodes {nodes_size}");
+    
     unsafe {
-        NODES = Some(ParallelList::new(nodes_size as usize))
-    }
-    for _index in 0..nodes_size {
-        let size = read_i32(&file_bytes, &mut index) as usize;
-        let segment = &file_bytes[index..(index+size)];
-        index += size;
-        let node = Node::from_bytes(segment);
-        add_node(node.index as jint, node.position[0] as jdouble, node.position[1] as jdouble, 0 as jdouble, 0, node.connections);
+        NODES = Some(FileLoader::new("cache\\nodes.dat").load_parallel().unwrap());
     }
     stop_watch.elapsed_store("Node Data To Memory");
     println!("Completed reading nodes");
-    let mut x : Loader<Node> = Loader::new("cache\\nodes.dat");
-    let result = x.load().unwrap();
-    stop_watch.elapsed_store("Node Data P");
-    let temp_geo = data::get_geometry();
-    let temp_traffic = data::get_traffic_lights();
+    let temp_geo = get_geometry();
+    let temp_traffic = get_traffic_lights();
     let geometries = temp_geo.as_parallel_slice();
     let traffic_lights = temp_traffic.as_slice();
     stop_watch.elapsed_store("Memory Read Data");
@@ -314,7 +302,7 @@ fn handle_input(window: &Window, camera: &mut FirstPerson,
 }
 
 #[inline]
-fn draw_boundary(window: &mut Window, boundary: &BoundarySIMD) {
+fn draw_boundary(window: &mut Window, boundary: &Boundary) {
     let blue = &Point3::new(204f32 / 255f32, 204f32 / 255f32, 1f32);
     window.draw_line(
         &point(boundary.corner_min[0], boundary.corner_min[1]),
@@ -338,7 +326,7 @@ fn draw_boundary(window: &mut Window, boundary: &BoundarySIMD) {
     );
 }
 
-fn draw_tree<T : SimdPosition>(window: &mut Window, tree: &QuadTree<T>) {
+fn draw_tree<T : Positional>(window: &mut Window, tree: &QuadTree<T>) {
     if tree.has_children {
         draw_tree(window, tree.top_left.as_ref().as_ref().unwrap());
         draw_tree(window, tree.top_right.as_ref().as_ref().unwrap());
@@ -356,6 +344,7 @@ fn main() {
     let mut timer = StopWatch::start();
     let mut camera = FirstPerson::new_with_frustrum(70f32, 0.0001, 1000f32, Point3::new(0f32, 0f32, 0f32), Point3::new(1f32, 0f32, 0f32));
     camera.translate_mut(&Translation3::new(-15f32, 0f32, 0f32));
+    camera.rebind_rotate_button(None);
     let mut window = Window::new("Rust Debugging Viewer");
     let temp_traffic_lights = get_traffic_lights();
     let traffic_lights = temp_traffic_lights.as_slice();
@@ -402,9 +391,9 @@ fn main() {
         SOLVER = Some(Solver::new(nodes, 373729, 37887, search_speed))
     }
     timer.elapsed_store("Construct Tree");
-    let mut display_traffic_lights = false;
+    let mut display_traffic_lights = true;
     let mut display_suburbs = false;
-    let mut display_nodes = true;
+    let mut display_nodes = false;
     let mut display_path = true;
     let mut display_tree = false;
     let mut key_pressed = false;
@@ -420,20 +409,25 @@ fn main() {
     let multiplier = range/difference;
     let closed = Arc::new(AtomicCell::new(false));
     let threaded_closed = closed.clone();
-    /*
+    timer.disable();
     let join = spawn(move || unsafe {
         let mut timer = StopWatch::start();
         loop {
             get_solver().compute_pre_find();
-            if get_solver().fully_searched() || *threaded_closed.as_ptr().as_mut().unwrap() {
-                threaded_found.store(true);
+            sleep(Duration::from_millis(16));
+            if *threaded_closed.as_ptr().as_mut().unwrap() {
                 break;
             }
-            sleep(Duration::from_millis(16))
+            if get_solver().fully_searched() {
+                timer.print_prefixed("Thread");
+                threaded_found.store(true);
+                sleep(Duration::from_secs(10));
+                get_solver().update_search(373729, 37887);
+                timer.reset();
+            }
         }
-        timer.print_prefixed("Thread");
-    });*/
-
+    });
+    /*
     let mut timer = StopWatch::start();
     loop {
         get_solver().compute_pre_find();
@@ -442,7 +436,7 @@ fn main() {
             break;
         }
     }
-    timer.print_prefixed("Thread");
+    timer.print_prefixed("Thread");*/
     let get_color = |speed: f64| -> Point3<f32> {
         let red = ((multiplier * (1f64 / 3f64) * (speed - min_speed)).clamp(0f64, 255f64) / 255f64) as f32;
         let green = ((multiplier * (1f64 / 3f64) * (max_speed - speed)).clamp(0f64, 255f64) / 255f64) as f32;
@@ -469,18 +463,16 @@ fn main() {
         }
 
         if display_tree {
-            draw_tree(&mut window, &get_node_tree());
+            draw_tree(&mut window, get_node_tree());
             timer.elapsed_store("Tree Display");
         }
-
-        //timer.elapsed_store("Reset Nodes");
-        //let result = solver.compute();
+        
         timer.elapsed_store("Path Find");
         if display_nodes {
             get_solver().get_nodes()
-                //.par_iter()
-                //.filter(|x2| x2.get_mut().has_visited())
-                //.collect::<Vec<_>>()
+                .par_iter()
+                .filter(|x2| x2.get_mut().has_visited())
+                .collect::<Vec<_>>()
                 .iter()
                 .for_each(|x| {
                     add_graph_node_to_scene(&mut window, x.get(), &get_color(match x.get_mut().node_type {
@@ -491,38 +483,35 @@ fn main() {
                 });
             timer.elapsed_store("Visited Node Display");
         }
-        unsafe {
-            if let Some(c_path) = &get_solver().path {
-                if display_path {
-                    let path = &c_path.0;
-                    let destination_color = &Point3::new(1f32, 0f32, 0f32);
-                    let start_color = &Point3::new(0f32, 0f32, 1f32);
-                    for i in 1..path.len() {
-                        let pos1 = &path[i - 1];
-                        let pos2 = &path[i];
-                        window.draw_line(
-                            &point(pos1[0], pos1[1]),
-                            &point(pos2[0], pos2[1]),
-                            destination_color,
-                        );
-                    }
-                    for item in path.iter() {
-                        window.draw_point(
-                            &point(item[0], item[1]),
-                            start_color,
-                        );
-                    }
-                    let cost = &c_path.1;
-                    let length = path.len();
-                    window.draw_text(format!("Cost {cost}").as_str(), &Point2::new((window.width() as f32)/2f32, (window.height() as f32)/2f32), 90f32, &Font::default(), &Point3::new(1f32, 1f32, 1f32));
-                    println!("{length} of path");
-                    timer.elapsed_store("Path Display");
+        if let Some(c_path) = &get_solver().path {
+            if display_path {
+                let path = &c_path.0;
+                let destination_color = &Point3::new(1f32, 0f32, 0f32);
+                let start_color = &Point3::new(0f32, 0f32, 1f32);
+                for i in 1..path.len() {
+                    let pos1 = &path[i - 1];
+                    let pos2 = &path[i];
+                    window.draw_line(
+                        &point(pos1[0], pos1[1]),
+                        &point(pos2[0], pos2[1]),
+                        destination_color,
+                    );
                 }
+                for item in path.iter() {
+                    window.draw_point(
+                        &point(item[0], item[1]),
+                        start_color,
+                    );
+                }
+                let cost = &c_path.1;
+                let length = path.len();
+                window.draw_text(format!("Cost {cost}").as_str(), &Point2::new((window.width() as f32)/2f32, (window.height() as f32)/2f32), 90f32, &Font::default(), &Point3::new(1f32, 1f32, 1f32));
+                timer.elapsed_store("Path Display");
             }
         }
     }
     unsafe {
         *closed.as_ptr().as_mut().unwrap() = true;
     }
-    //join.join().expect("TODO: panic message");
+    join.join().expect("TODO: panic message");
 }

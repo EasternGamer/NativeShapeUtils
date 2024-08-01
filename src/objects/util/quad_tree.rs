@@ -1,104 +1,26 @@
-use core::slice::SlicePattern;
-use std::cell::UnsafeCell;
-use std::fmt::{Display, Formatter};
-use std::ops::{Div, Sub};
-use std::simd::prelude::{SimdFloat, SimdPartialOrd};
 use std::simd::Simd;
-
-use crate::helper::{ByteConvertable, read_f64, read_i32, skip_i32};
-use crate::types::{Index, Pos};
+use std::ops::{Div, Sub};
+use crate::objects::boundary::Boundary;
+use crate::traits::Positional;
+use crate::types::Pos;
 
 const MAX_CAPACITY : usize = 1024;
-const MAX_DEPTH : i8 = 32; 
+const MAX_DEPTH : i8 = 32;
 
-pub trait SimdPosition {
-    fn position(&self) -> &Simd<Pos, 2>;
-}
-pub trait HasIndex {
-    fn index(&self) -> usize;
-}
-#[repr(transparent)]
-pub struct SuperCell<T : ?Sized> {
-    value : UnsafeCell<T>
-}
-
-impl <T : SimdPosition> SimdPosition for SuperCell<T> {
-    #[inline]
-    fn position(&self) -> &Simd<Pos, 2> {
-        self.get().position()
-    }
-}
-
-unsafe impl <T> Sync for SuperCell<T> {}
-unsafe impl <T> Send for SuperCell<T> {}
-
-impl <T> SuperCell<T> {
-    #[inline]
-    pub const fn new(value : T) -> Self {
-        Self {
-            value : UnsafeCell::new(value)
-        }
-    }
-    #[inline]
-    pub fn get_mut(&self) -> &mut T {
-        unsafe { &mut (*self.value.get()) }
-    }
-    #[inline]
-    pub fn get(&self) -> &T {
-        unsafe { &(*self.value.get()) }
-    }
-}
-impl<T> SuperCell<[T]> {
-    /// Returns a `&[SuperCell<T>]` from a `&SuperCell<[T]>`
-    ///
-    /// # Examples
-    ///
-    /// ```
-    ///
-    /// let slice: &mut [i32] = &mut [1, 2, 3];
-    /// let cell_slice: &SuperCell<[i32]> = SuperCell::from_mut(slice);
-    /// let slice_cell: &[SuperCell<i32>] = cell_slice.as_slice_of_cells();
-    ///
-    /// assert_eq!(slice_cell.len(), 3);
-    /// ```
-    pub fn as_slice_of_cells(&self) -> &[SuperCell<T>] {
-        // SAFETY: `Cell<T>` has the same memory layout as `T`.
-        unsafe { &*(self as *const SuperCell<[T]> as *const [SuperCell<T>]) }
-    }
-}
-
-impl<T, const N: usize> SuperCell<[T; N]> {
-    /// Returns a `&[SuperCell<T>; N]` from a `&SuperCell<[T; N]>`
-    ///
-    /// # Examples
-    ///
-    /// ```
-    ///
-    /// let mut array: [i32; 3] = [1, 2, 3];
-    /// let cell_array: &SuperCell<[i32; 3]> = SuperCell::from_mut(&mut array);
-    /// let array_cell: &[SuperCell<i32>; 3] = cell_array.as_array_of_cells();
-    /// ```
-    pub fn as_array_of_cells(&self) -> &[SuperCell<T>; N] {
-        // SAFETY: `Cell<T>` has the same memory layout as `T`.
-        unsafe { &*(self as *const SuperCell<[T; N]> as *const [SuperCell<T>; N]) }
-    }
-}
-
-pub struct QuadTree<'life, T : SimdPosition> {
+pub struct QuadTree<'life, T : Positional> {
     pub top_left : Box<Option<QuadTree<'life, T>>>,
     pub top_right : Box<Option<QuadTree<'life, T>>>,
     pub bottom_left : Box<Option<QuadTree<'life, T>>>,
     pub bottom_right : Box<Option<QuadTree<'life, T>>>,
     pub depth : i8,
     pub has_children : bool,
-    pub boundary : BoundarySIMD,
+    pub boundary : Boundary,
     pub data : Vec<&'life T>
 }
 
-
-impl <'life, T : SimdPosition> QuadTree<'life, T> {
+impl <'life, T : Positional> QuadTree<'life, T> {
     #[inline]
-    pub fn new(boundary_simd: BoundarySIMD, depth : i8) -> QuadTree<'life, T> {
+    pub fn new(boundary_simd: Boundary, depth : i8) -> QuadTree<'life, T> {
         QuadTree {
             top_left : Box::new(None),
             top_right : Box::new(None),
@@ -236,19 +158,19 @@ impl <'life, T : SimdPosition> QuadTree<'life, T> {
         let corner_max_array = corner_max_simd.as_array();
 
         let new_depth = self.depth + 1;
-        let top_left_boundary = BoundarySIMD {
+        let top_left_boundary = Boundary {
             corner_min: Simd::from_array([corner_min_array[0], center_array[1]]),
             corner_max: Simd::from_array([center_array[0], corner_max_array[1]])
         };
-        let bottom_right_boundary = BoundarySIMD {
+        let bottom_right_boundary = Boundary {
             corner_min: Simd::from_array([center_array[0], corner_min_array[1]]),
             corner_max: Simd::from_array([corner_max_array[0], center_array[1]])
         };
-        let top_right_boundary = BoundarySIMD {
+        let top_right_boundary = Boundary {
             corner_min: *center_simd,
             corner_max: *corner_max_simd
         };
-        let bottom_left_boundary = BoundarySIMD {
+        let bottom_left_boundary = Boundary {
             corner_min: *corner_min_simd,
             corner_max: *center_simd
         };
@@ -279,125 +201,5 @@ impl <'life, T : SimdPosition> QuadTree<'life, T> {
         self.bottom_right = Box::new(Some(bottom_right));
         
         self.has_children = true;
-    }
-}
-
-pub struct BoundarySIMD {
-    pub corner_max : Simd<Pos, 2>,
-    pub corner_min : Simd<Pos, 2>
-}
-
-impl BoundarySIMD {
-    #[inline]
-    pub fn contains(&self, point : &Simd<Pos, 2>) -> bool {
-        point.simd_le(self.corner_max).all() && point.simd_ge(self.corner_min).all()
-    }
-    #[inline]
-    pub fn does_overlap(&self, other : &BoundarySIMD) -> bool {
-        self.corner_min.simd_le(other.corner_max).all() && self.corner_max.simd_ge(other.corner_min).all()
-    }
-}
-
-impl Display for BoundarySIMD {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Min({}, {}), Max({},{})", self.corner_min[0], self.corner_min[1], self.corner_max[0], self.corner_max[1])
-    }
-}
-
-pub struct Geometry {
-    pub id : Index,
-    pub boundary : BoundarySIMD,
-    pub x_points : Box<[Pos]>,
-    pub y_points : Box<[Pos]>,
-}
-/*
-impl Clone for Geometry {
-    fn clone(&self) -> Self {
-        Geometry {
-            x_points: Box::new([]),
-            y_points: Box::new([]),
-            id: self.id,
-            boundary: BoundarySIMD {
-                corner_max : Simd::from_array([0.0, 0.0]),
-                corner_min: Simd::from_array([0.0, 0.0])
-            },
-        }
-    }
-}*/
-
-impl Geometry {
-    /**
-     * Taken from and translated from the Even-Odd rule algorithm found on Wikipedia, using SIMD where possible.
-     * <br>https://en.wikipedia.org/wiki/Even-odd_rule</br>
-     */
-    #[inline]
-    pub fn is_inside(&self, pos : &Simd<Pos, 2>) -> bool {
-        if self.boundary.contains(pos) {
-            self.is_inside_no_bound_check(pos)
-        } else {
-            false
-        }
-    }
-    
-    #[inline]
-    pub fn is_inside_no_bound_check(&self, pos : &Simd<Pos, 2>) -> bool {
-        let pos_array = pos.as_array();
-        let x = pos_array[0];
-        let y = pos_array[1];
-        let bound_x = self.x_points.as_slice();
-        let bound_y = self.y_points.as_slice();
-        let point_count = bound_x.len();
-        let mut by = bound_y[0];
-        let mut ax;
-        let mut ay;
-        let mut xsimd = Simd::from_array([x, by]);
-        let mut ysimd = Simd::from_array([bound_x[0], y]);
-        let mut asimd;
-        let mut inside = false;
-        for eb in 1..point_count {
-            ax = bound_x[eb];
-            ay = bound_y[eb];
-            asimd = Simd::from_array([ax, ay]);
-            if (y < ay) != (y < by) && (xsimd.sub(asimd).reduce_product() - ysimd.sub(asimd).reduce_product() < (0f64 as Pos)) != (by < ay) {
-                inside = !inside;
-            }
-            xsimd = Simd::from_array([x, ay]);
-            ysimd = Simd::from_array([ax, y]);
-            by = ay;
-        }
-        inside
-    }
-}
-#[derive(Clone, Copy)]
-pub struct TrafficLight {
-    pub id : Index,
-    pub position: Simd<Pos, 2>
-}
-
-impl HasIndex for TrafficLight {
-    #[inline]
-    fn index(&self) -> usize {
-        self.id
-    }
-    
-}
-
-impl SimdPosition for TrafficLight {
-    #[inline]
-    fn position(&self) -> &Simd<Pos, 2> {
-        &self.position
-    }
-}
-impl ByteConvertable for TrafficLight {
-    fn from_bytes(byte_array: &[u8]) -> Self {
-        let mut index = 0;
-        let id = read_i32(byte_array, &mut index);
-        skip_i32(&mut index);
-        let x = read_f64(byte_array, &mut index) as Pos;
-        let y = read_f64(byte_array, &mut index) as Pos;
-        Self {
-            id : id as usize,
-            position : Simd::from_array([x, y])
-        }
     }
 }

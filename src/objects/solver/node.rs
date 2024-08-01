@@ -1,55 +1,11 @@
-use core::slice::SlicePattern;
-use std::mem::MaybeUninit;
 use std::simd::Simd;
-use rayon::prelude::*;
-use crate::data::distance;
-use crate::helper::{ByteConvertable, read_f64, read_i32, skip_f64, skip_i32};
-use crate::struts::{HasIndex, SimdPosition, SuperCell, TrafficLight};
+use std::mem::MaybeUninit;
+use core::slice::SlicePattern;
+use crate::loader::{read_f64, read_i32, skip_f64, skip_i32};
+use crate::objects::solver::connection::Connection;
+use crate::objects::solver::node_type::NodeType;
+use crate::traits::{ByteConvertable, Indexable, Positional};
 use crate::types::{Cost, Flag, Index, Pos};
-
-#[derive(Debug, Eq, PartialEq, Copy, Clone)]
-#[repr(u8)]
-pub enum NodeType {
-    AtTrafficLight = 2,
-    NearTrafficLight = 1,
-    Normal = 0
-}
-
-const AT_TRAFFIC_LIGHT_THRESHOLD: Pos = 25f64 as Pos;
-const NEAR_TRAFFIC_LIGHT_THRESHOLD: Pos = 100f64 as Pos;
-
-impl NodeType {
-    pub fn assign_types(traffic_light : &TrafficLight, nodes : &[&SuperCell<Node>]) {
-        nodes.as_parallel_slice().into_par_iter().for_each(|node| {
-            let mutable_node = node.get_mut();
-            match mutable_node.node_type {
-                NodeType::Normal => {
-                    let distance = distance(&traffic_light.position, mutable_node.position());
-                    if distance < AT_TRAFFIC_LIGHT_THRESHOLD {
-                        mutable_node.node_type = NodeType::AtTrafficLight
-                    } else if distance < NEAR_TRAFFIC_LIGHT_THRESHOLD {
-                        mutable_node.node_type = NodeType::NearTrafficLight
-                    }
-                },
-                NodeType::NearTrafficLight => {
-                    let distance = distance(&traffic_light.position, mutable_node.position());
-                    if distance < AT_TRAFFIC_LIGHT_THRESHOLD {
-                        mutable_node.node_type = NodeType::AtTrafficLight
-                    }
-                },
-                NodeType::AtTrafficLight => {}
-            }
-        });
-    }
-}
-
-#[derive(Clone)]
-pub struct Connection {
-    pub index : u32,
-    pub cost : Cost
-}
-unsafe impl Send for Connection {}
-unsafe impl Sync for Connection {}
 
 pub struct Node {
     pub index : Index,
@@ -77,13 +33,14 @@ impl Clone for Node {
     }
 }
 
-impl SimdPosition for Node {
+impl Positional for Node {
     #[inline]
     fn position(&self) -> &Simd<Pos, 2> {
         &self.position
     }
 }
-impl HasIndex for Node {
+
+impl Indexable for Node {
     fn index(&self) -> usize {
         self.index as usize
     }
@@ -150,7 +107,9 @@ impl Node {
         self.connection_len = 0u16;
     }
 }
+
 unsafe impl Send for Node {}
+
 unsafe impl Sync for Node {}
 
 impl ByteConvertable for Node {

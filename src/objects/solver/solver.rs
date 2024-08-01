@@ -1,12 +1,12 @@
 use std::simd::Simd;
-
-use chrono::{Timelike, Utc};
-use pheap::PairingHeap;
 use radix_heap::RadixHeapMap;
-
-use crate::data::distance;
-use crate::node::*;
-use crate::struts::{HasIndex, SimdPosition, SuperCell};
+use pheap::PairingHeap;
+use chrono::{Timelike, Utc};
+use crate::distance;
+use crate::objects::solver::node::Node;
+use crate::objects::solver::node_type::NodeType;
+use crate::objects::util::super_cell::SuperCell;
+use crate::traits::{Indexable, Positional};
 use crate::types::{Cost, Pos};
 
 const HOUR_TO_MIN : f64 = 60f64;
@@ -16,7 +16,6 @@ const MAX_TIME_HOUR : u32 = 16;
 const MAX_TIME_MIN : u32 = MAX_TIME_HOUR*60;
 const MAX_TIME_S : u32 = MAX_TIME_MIN*60;
 const MAX_TIME_MS : u32 = MAX_TIME_S*1000;
-
 const MAX_TIME : u32 = MAX_TIME_S;
 const CONVERSION_FACTOR : Cost = HOUR_TO_SEC as Cost;
 
@@ -33,7 +32,9 @@ pub struct Solver<'solver> {
     max_iterations : u32,
     nodes: &'solver [SuperCell<Node>]
 }
+
 const ASSUMED_SPEED : Pos = 120f64 as Pos;
+
 #[inline]
 fn calculate_weight_optimal(node_1 : &Node, node_2 : &Node) -> Pos {
     distance(node_1.position(), node_2.position())/ASSUMED_SPEED
@@ -46,7 +47,7 @@ impl <'solver> Solver<'solver>  {
              backup_heap : RadixHeapMap::new(),
              direct_heap: PairingHeap::new(),
              path : None,
-             avoid_traffic_lights : false,
+             avoid_traffic_lights : true,
              start_node : &nodes[start_node_index],
              end_node : &nodes[end_node_index],
              current_iteration : 0u32,
@@ -84,7 +85,6 @@ impl <'solver> Solver<'solver>  {
 
     fn merge(&mut self) {
         if !self.backup_heap.is_empty() {
-            println!("Merging...");
             let mut new_radix = RadixHeapMap::new();
             let left_over_values = self.heap.iter();
             let bad_values = self.backup_heap.iter();
@@ -107,7 +107,6 @@ impl <'solver> Solver<'solver>  {
         let end_node_index = self.end_node.get().index() as u32;
         let time_in_hour = (Utc::now().time().minute() as f64/60f64) as Cost;
         if !self.end_node.get_mut().has_visited() {
-            println!("Computing Direct");
             let mut visited = Vec::new();
             let mut found = false;
             self.direct_heap.insert(self.start_node, calculate_weight_optimal(self.start_node.get(), self.end_node.get()) as Cost);
@@ -188,8 +187,6 @@ impl <'solver> Solver<'solver>  {
                 }
             }
         }
-        let iterations = self.total_iterations;
-        println!("Computed Radix a total of {iterations}");
     }
     
     pub fn compute_pre_find(&mut self) {
@@ -224,7 +221,6 @@ impl <'solver> Solver<'solver>  {
                 break;
             }
         }
-        //assert_eq!(previous_node.value.index(), self.start_node.value.index());
         path.push(*previous_node.get().position());
         path.into_boxed_slice()
     }
@@ -243,5 +239,6 @@ impl <'solver> Solver<'solver>  {
 
 unsafe impl <'solver> Sync for Solver<'solver>  {
 }
+
 unsafe impl <'solver> Send for Solver<'solver>{
 }
