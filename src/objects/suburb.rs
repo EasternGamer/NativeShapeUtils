@@ -60,7 +60,7 @@ impl Suburb {
 }
 
 impl Indexable for Suburb {
-    fn index(&self) -> usize { self.id as usize }
+    fn index(&self) -> Index { self.id }
 }
 
 impl ByteConvertable for Suburb {
@@ -80,7 +80,7 @@ impl ByteConvertable for Suburb {
             x_points[index_c] = read_f64(byte_array, &mut index) as Pos;
             y_points[index_c] = read_f64(byte_array, &mut index) as Pos;
         }
-        let id = id as usize;
+        let id = id as Index;
         let boundary = Boundary {
             corner_max: Simd::from_array([max_x as Pos, max_y as Pos]),
             corner_min: Simd::from_array([min_x as Pos, min_y as Pos])

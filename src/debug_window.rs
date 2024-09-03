@@ -14,6 +14,7 @@ use crate::{get_node_tree, get_nodes, get_solver, get_suburbs, get_traffic_light
 use crate::objects::boundary::Boundary;
 use crate::objects::pathing::node::Node;
 use crate::objects::pathing::node_type::NodeType;
+use crate::objects::pathing::solver::Solver;
 use crate::objects::suburb::Suburb;
 use crate::objects::traffic_light::TrafficLight;
 use crate::objects::util::quad_tree::QuadTree;
@@ -188,9 +189,9 @@ pub fn start_search() {
     spawn(|| {
         let mut timer = StopWatch::start();
         loop {
-            get_solver().compute_pre_find();
+            get_solver(0).compute();
             sleep(Duration::from_millis(16));
-            if get_solver().fully_searched() {
+            if get_solver(0).fully_searched() {
                 timer.print_prefixed("Thread");
                 break;
             }
@@ -221,11 +222,12 @@ pub fn start_window() {
     let mut key_pressed = false;
     
     timer.disable();
+    let solver = get_solver(0);
     while window.render_with_camera(&mut camera) {
         timer.elapsed_store("Render Time");
         timer.print_prefixed("Window");
         handle_input(&window, &mut camera, &mut search_speed, &mut display_traffic_lights, &mut display_suburbs, &mut display_nodes, &mut display_path, &mut display_tree, &mut key_pressed);
-        get_solver().update_search_speed(search_speed);
+        get_solver(0).update_search_speed(search_speed);
         timer.elapsed_store("Handle Input");
         if display_traffic_lights {
             traffic_lights.iter().for_each(|x| {
@@ -251,21 +253,20 @@ pub fn start_window() {
             get_nodes()
                 .get_slice()
                 .par_iter()
-                .filter(|x2| x2.get_mut().has_visited())
+                .filter(|x2| solver.has_visited(x2.get().index))
                 .collect::<Vec<_>>()
                 .iter()
                 .for_each(|x| {
-                    add_graph_node_to_scene(&mut window, x.get(), &(match x.get_mut().node_type {
-                        NodeType::Normal => Point3::new(0f32, 1f32, 0f32),
-                        NodeType::NearTrafficLight => Point3::new(0.5f32, 0.5f32, 0f32),
-                        NodeType::AtTrafficLight => Point3::new(1f32, 0f32, 0f32)
+                    add_graph_node_to_scene(&mut window, x.get(), &(match (x.get_mut().node_type, Solver::is_load_shedding(x.get_mut().flag, 0.0)) {
+                        (NodeType::Normal, x) => Point3::new(0f32, 1f32, x),
+                        (NodeType::NearTrafficLight, x) => Point3::new(0.5f32, 0.5f32, x),
+                        (NodeType::AtTrafficLight, x) => Point3::new(1f32, 0f32, x)
                     }))
                 });
             timer.elapsed_store("Visited Node Display");
         }
-        if let Some(c_path) = get_solver().get_path_as_positions() {
+        if let Some((path, time, distance)) = get_solver(0).get_path_as_positions() {
             if display_path {
-                let path = &c_path.0;
                 let destination_color = &Point3::new(1f32, 0f32, 0f32);
                 let start_color = &Point3::new(0f32, 0f32, 1f32);
                 for i in 1..path.len() {
@@ -283,8 +284,7 @@ pub fn start_window() {
                         start_color,
                     );
                 }
-                let cost = &c_path.1;
-                window.draw_text(format!("Cost {cost}").as_str(), &Point2::new((window.width() as f32)/2f32, (window.height() as f32)/2f32), 90f32, &Font::default(), &Point3::new(1f32, 1f32, 1f32));
+                window.draw_text(format!("Cost {time}; Distance {distance}").as_str(), &Point2::new((window.width() as f32)/2f32, (window.height() as f32)/2f32), 90f32, &Font::default(), &Point3::new(1f32, 1f32, 1f32));
                 timer.elapsed_store("Path Display");
             }
         }

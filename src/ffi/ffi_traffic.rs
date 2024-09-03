@@ -1,22 +1,24 @@
 use std::simd::Simd;
 use std::time::Instant;
 
-use jni::JNIEnv;
 use jni::objects::{AsJArrayRaw, JByteArray, JClass};
 use jni::signature::Primitive::Void;
 use jni::signature::ReturnType;
 use jni::sys::{jboolean, jdouble, jint, jintArray, jsize, jvalue};
+use jni::JNIEnv;
 use rayon::prelude::ParallelSlice;
 
-use crate::{add_suburbs, add_traffic_lights, compute, get_suburbs, get_traffic_lights};
 use crate::loader::load_from_bytes;
 use crate::objects::boundary::Boundary;
+use crate::traits::Positional;
 use crate::types::Pos;
+use crate::{add_suburbs, add_traffic_lights, build_traffic_light_tree, compute, distance, get_suburbs, get_traffic_light_tree, get_traffic_lights};
 
 #[no_mangle]
 pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_sendTrafficLights<'l>(env: JNIEnv<'l>, _class: JClass<'l>, data : JByteArray<'l>) {
     let bytes = env.convert_byte_array(&data).expect("Failed to load byte array for traffic lights");
-    add_traffic_lights(load_from_bytes(bytes.as_slice()))
+    add_traffic_lights(load_from_bytes(bytes.as_slice()));
+    build_traffic_light_tree();
 }
 
 #[no_mangle]
@@ -99,6 +101,40 @@ pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_getTrafficLigh
     }
 
     indexes.as_jarray_raw()
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_getNearestTrafficLight<'l>(_env: JNIEnv<'l>, _class: JClass<'l>,
+                                                                                               x : jdouble, y : jdouble,
+                                                                                               debug : jboolean) -> jint {
+    let start_time = Instant::now();
+    let result = get_traffic_light_tree();
+    let position = Simd::from_array([x as Pos, y as Pos]);
+    let time_delta_init = (start_time.elapsed().as_nanos() as f64)/1e6;
+
+    let start_filter_time = Instant::now();
+    let optional_nearest_list = result.find_data(&position);
+    let time_delta_filter = (start_filter_time.elapsed().as_nanos() as f64)/1e6;
+
+    let start_nearest_time = Instant::now();
+    let mut nearest = &get_traffic_lights().get_slice()[0];
+    let mut nearest_distance = Pos::MAX;
+    if let Some(nearest_list) = optional_nearest_list {
+        for item in nearest_list {
+            let distance = distance(&position, item.position());
+            if distance < nearest_distance {
+                nearest_distance = distance;
+                nearest = item;
+            }
+        }
+    }
+    let time_delta_nearest = (start_nearest_time.elapsed().as_nanos() as f64)/1e6;
+    if debug == 1u8 {
+        println!("Rust Binding - Initialization Time: {time_delta_init}ms");
+        println!("Rust Binding - Filter Time: {time_delta_filter}ms");
+        println!("Rust Binding - Nearest Time: {time_delta_nearest}ms");
+    }
+    nearest.get().id as jint
 }
 
 #[no_mangle]

@@ -8,9 +8,9 @@
 
 extern crate core;
 
-use std::simd::*;
 use std::simd::cmp::SimdPartialOrd;
 use std::simd::num::SimdFloat;
+use std::simd::*;
 
 use jni::sys::jint;
 use rayon::prelude::*;
@@ -38,13 +38,15 @@ pub mod debug_window;
 
 const MULTIPLIER: Simd<Pos, 2> = Simd::from_array([85295.2, 110948.0]);
 
-pub static mut SOLVER : Option<Solver> = None;
+pub static mut SOLVERS : Option<ParallelList<Solver>> = None;
 pub static mut SUBURBS: Option<ParallelList<Suburb>> = None;
 pub static mut TRAFFIC_LIGHTS : Option<ParallelList<TrafficLight>> = None;
 pub static mut NODES : Option<ParallelList<Node>> = None;
 pub static mut NODE_TREE : Option<QuadTree<SuperCell<Node>>> = None;
+pub static mut TRAFFIC_LIGHT_TREE : Option<QuadTree<SuperCell<TrafficLight>>> = None;
 
-pub fn create_tree<T : Positional + Sync>(values : &[SuperCell<T>]) -> QuadTree<SuperCell<T>> {
+
+fn get_boundary<T : Positional + Sync>(values : &[SuperCell<T>]) -> (Simd<Pos, 2>, Simd<Pos, 2>) {
     let mut min = Simd::from_array([90f64 as Pos,90f64 as Pos]);
     let mut max = Simd::from_array([-90f64 as Pos,-90f64 as Pos]);
     let mut position;
@@ -57,11 +59,11 @@ pub fn create_tree<T : Positional + Sync>(values : &[SuperCell<T>]) -> QuadTree<
             max = max.simd_max(position);
         }
     }
-    let max_x = max[0];
-    let max_y = max[1];
-    let min_x = min[0];
-    let min_y = min[1];
-    println!("Boundary: ({max_x},{max_y}),({min_x},{min_y})");
+    (max, min)
+}
+
+pub fn create_tree<T : Positional + Sync>(values : &[SuperCell<T>]) -> QuadTree<SuperCell<T>> {
+    let (max, min) = get_boundary(values);
     let mut tree = QuadTree::new(Boundary {
         corner_max: max,
         corner_min: min,
@@ -73,6 +75,10 @@ pub fn create_tree<T : Positional + Sync>(values : &[SuperCell<T>]) -> QuadTree<
 }
 
 pub fn associate_traffic_lights_to_nodes() {
+    get_nodes()
+        .get_slice_mut()
+        .par_iter_mut()
+        .for_each(|x| {x.get_mut().node_type = NodeType::Normal});
     for traffic_light in get_traffic_lights().as_slice() {
         if let Some(data) = get_node_tree().find_data(traffic_light.position()) {
             let d = data.as_slice();
@@ -100,12 +106,19 @@ pub fn get_nodes() -> &'static ParallelList<Node> {
     unsafe { NODES.as_ref().unwrap() }
 }
 #[inline]
-pub fn get_solver() -> &'static mut Solver<'static> {
-    unsafe { SOLVER.as_mut().unwrap() }
+pub fn get_solver(index : usize) -> &'static mut Solver<'static> {
+    unsafe {
+        SOLVERS.as_ref().unwrap().get_mut(index)
+    }
 }
 #[inline]
 pub fn get_node_tree() -> &'static mut QuadTree<'static, SuperCell<Node>> {
     unsafe { NODE_TREE.as_mut().unwrap() }
+}
+
+#[inline]
+pub fn get_traffic_light_tree() -> &'static QuadTree<'static, SuperCell<TrafficLight>> {
+    unsafe { TRAFFIC_LIGHT_TREE.as_ref().unwrap() }
 }
 #[inline]
 pub fn add_traffic_lights(traffic_lights: ParallelList<TrafficLight>) {
@@ -122,11 +135,35 @@ pub fn add_suburbs(suburbs : ParallelList<Suburb>) {
     }
 }
 #[inline]
-pub fn add_solver(solver: Solver<'static>) {
+pub fn add_solver(solver: Solver<'static>) -> usize {
     unsafe {
-        SOLVER = Some(solver);
+        match SOLVERS.as_mut() {  
+            None => {
+                let mut solvers = ParallelList::new(24);
+                solvers.insert(solver, 0);
+                solvers.len = 1;
+                SOLVERS = Some(solvers);
+                0
+            }
+            Some(solvers) => {
+                solvers.insert(solver, solvers.len);
+                solvers.len += 1;
+                solvers.len - 1
+            }
+        }
     }
 }
+pub fn remove_solver() {
+    unsafe {
+        match SOLVERS.as_mut() {
+            None => {}
+            Some(solvers) => {
+                solvers.len = solvers.len - 1
+            }
+        }
+    }
+}
+
 #[inline]
 pub fn build_node_tree() {
     unsafe {
@@ -134,7 +171,14 @@ pub fn build_node_tree() {
     }
 }
 
-pub fn get_closest_node(position : &Simd<Pos, 2>) -> Index {
+#[inline]
+pub fn build_traffic_light_tree() {
+    unsafe {
+        TRAFFIC_LIGHT_TREE = Some(create_tree(get_traffic_lights().get_slice()));
+    }
+}
+
+pub fn get_closest_node(position : &Simd<Pos, 2>) -> Option<Index> {
     let mut closest = None;
     let mut current_distance = Pos::MAX;
     if let Some(list) = get_node_tree().find_data(&position) {
@@ -146,7 +190,7 @@ pub fn get_closest_node(position : &Simd<Pos, 2>) -> Index {
             }
         }
     }
-    closest.expect("Could not find cell").get().index() as Index
+    closest.map(|t| {t.get().index})
 }
 
 #[inline]
@@ -186,6 +230,6 @@ pub fn compute(geometries : &[Suburb], traffic_lights: &[TrafficLight]) -> Vec<(
                     None => suburb = Some(x)
                 }
             });
-        (traffic_light.id as jint, suburb.map(|x1| {x1.id}).unwrap_or(0usize) as jint)
+        (traffic_light.id as jint, suburb.map(|x1| {x1.id}).unwrap_or(0usize as Index) as jint)
     }).collect()
 }

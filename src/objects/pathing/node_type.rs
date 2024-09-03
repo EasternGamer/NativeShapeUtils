@@ -15,6 +15,12 @@ pub enum NodeType {
     Normal = 0
 }
 
+pub enum SearchMethod {
+    FASTEST,
+    SHORTEST,
+    AVOID
+}
+
 const AT_TRAFFIC_LIGHT_THRESHOLD: Pos = 25f64 as Pos;
 const NEAR_TRAFFIC_LIGHT_THRESHOLD: Pos = 100f64 as Pos;
 
@@ -27,19 +33,22 @@ impl NodeType {
                     let distance = distance(&traffic_light.position, mutable_node.position());
                     if distance < AT_TRAFFIC_LIGHT_THRESHOLD {
                         mutable_node.node_type = NodeType::AtTrafficLight;
+                        mutable_node.flag = traffic_light.flag;
                     } else if distance < NEAR_TRAFFIC_LIGHT_THRESHOLD {
                         mutable_node.node_type = NodeType::NearTrafficLight;
+                        mutable_node.flag = traffic_light.flag;
                     }
-                    mutable_node.flag = traffic_light.flag;
                 },
                 NodeType::NearTrafficLight => {
                     let distance = distance(&traffic_light.position, mutable_node.position());
                     if distance < AT_TRAFFIC_LIGHT_THRESHOLD {
                         mutable_node.node_type = NodeType::AtTrafficLight;
+                        mutable_node.flag = traffic_light.flag;
                     }
-                    mutable_node.flag = traffic_light.flag;
                 },
-                NodeType::AtTrafficLight => { mutable_node.flag = traffic_light.flag; }
+                NodeType::AtTrafficLight => {
+                    
+                }
             }
         });
     }

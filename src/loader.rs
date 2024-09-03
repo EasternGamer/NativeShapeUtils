@@ -63,7 +63,7 @@ pub fn load_from_bytes_parallel<T : Indexable + ByteConvertable>(bytes : &[u8]) 
     byte_array.into_par_iter().by_uniform_blocks(block_size).for_each(|x| {
         let data = T::from_bytes(x);
         let index = data.index();
-        list.insert(data, index);
+        list.insert(data, index as usize);
     });
     list
 }
@@ -78,7 +78,7 @@ pub fn load_from_bytes<T : Indexable + ByteConvertable>(bytes : &[u8]) -> Parall
         index += type_size;
         let data = T::from_bytes(type_bytes);
         let index = data.index();
-        list.insert(data, index);
+        list.insert(data, index as usize);
     }
     list
 }

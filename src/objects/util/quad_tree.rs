@@ -4,7 +4,7 @@ use crate::objects::boundary::Boundary;
 use crate::traits::Positional;
 use crate::types::Pos;
 
-const MAX_CAPACITY : usize = 1024;
+const MAX_CAPACITY : usize = 256;
 const MAX_DEPTH : i8 = 32;
 
 pub struct QuadTree<'life, T : Positional> {
