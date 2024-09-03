@@ -188,9 +188,9 @@ pub fn start_search() {
     spawn(|| {
         let mut timer = StopWatch::start();
         loop {
-            get_solver().compute_pre_find();
+            get_solver(0).compute();
             sleep(Duration::from_millis(16));
-            if get_solver().fully_searched() {
+            if get_solver(0).fully_searched() {
                 timer.print_prefixed("Thread");
                 break;
             }
@@ -221,11 +221,12 @@ pub fn start_window() {
     let mut key_pressed = false;
     
     timer.disable();
+    let solver = get_solver(0);
     while window.render_with_camera(&mut camera) {
         timer.elapsed_store("Render Time");
         timer.print_prefixed("Window");
         handle_input(&window, &mut camera, &mut search_speed, &mut display_traffic_lights, &mut display_suburbs, &mut display_nodes, &mut display_path, &mut display_tree, &mut key_pressed);
-        get_solver().update_search_speed(search_speed);
+        get_solver(0).update_search_speed(search_speed);
         timer.elapsed_store("Handle Input");
         if display_traffic_lights {
             traffic_lights.iter().for_each(|x| {
@@ -251,7 +252,7 @@ pub fn start_window() {
             get_nodes()
                 .get_slice()
                 .par_iter()
-                .filter(|x2| x2.get_mut().has_visited())
+                .filter(|x2| solver.has_visited(x2.get().index))
                 .collect::<Vec<_>>()
                 .iter()
                 .for_each(|x| {
@@ -263,7 +264,7 @@ pub fn start_window() {
                 });
             timer.elapsed_store("Visited Node Display");
         }
-        if let Some(c_path) = get_solver().get_path_as_positions() {
+        if let Some(c_path) = get_solver(0).get_path_as_positions() {
             if display_path {
                 let path = &c_path.0;
                 let destination_color = &Point3::new(1f32, 0f32, 0f32);

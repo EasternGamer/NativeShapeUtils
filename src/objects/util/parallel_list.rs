@@ -1,18 +1,26 @@
-use std::mem::MaybeUninit;
-use std::ops::{Index, IndexMut};
+use crate::objects::util::super_cell::SuperCell;
 use core::slice::SlicePattern;
 use rayon::prelude::ParallelSliceMut;
-use crate::objects::util::super_cell::SuperCell;
+use std::mem::MaybeUninit;
+use std::ops::{Index, IndexMut};
 
 pub struct ParallelList<T> {
-    pub data : SuperCell<Box<[MaybeUninit<SuperCell<T>>]>>
+    pub data : SuperCell<Box<[MaybeUninit<SuperCell<T>>]>>,
+    pub size : usize,
+    pub len : usize
 }
 
 impl <T> ParallelList<T> {
     pub fn new(size : usize) -> Self {
         Self {
-            data: SuperCell::new(Box::new_uninit_slice(size))
+            data: SuperCell::new(Box::new_uninit_slice(size)),
+            size,
+            len : 0
         }
+    }
+    
+    pub fn get_size(&self) -> usize {
+        self.size
     }
 
     #[inline]
@@ -35,6 +43,13 @@ impl <T> ParallelList<T> {
     #[inline]
     pub fn as_slice(&self) -> &[T] {
         unsafe {  &*(MaybeUninit::slice_assume_init_ref(self.data.get_mut().as_slice()) as *const [SuperCell<T>] as *const [T]) }
+    }
+
+    pub fn add(&mut self, value : T) {
+        if self.len < self.size {
+            self.data.get_mut()[self.len] = MaybeUninit::new(SuperCell::new(value));
+            self.len += 1;
+        }
     }
 }
 

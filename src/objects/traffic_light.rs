@@ -12,7 +12,7 @@ pub struct TrafficLight {
 
 impl Indexable for TrafficLight {
     #[inline]
-    fn index(&self) -> usize {
+    fn index(&self) -> Index {
         self.id
     }
     
@@ -33,7 +33,7 @@ impl ByteConvertable for TrafficLight {
         let x = read_f64(byte_array, &mut index) as Pos;
         let y = read_f64(byte_array, &mut index) as Pos;
         Self {
-            id : id as usize,
+            id : id as Index,
             position : Simd::from_array([x, y]),
             flag : flag as Flag
         }

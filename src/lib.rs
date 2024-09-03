@@ -8,9 +8,9 @@
 
 extern crate core;
 
-use std::simd::*;
 use std::simd::cmp::SimdPartialOrd;
 use std::simd::num::SimdFloat;
+use std::simd::*;
 
 use jni::sys::jint;
 use rayon::prelude::*;
@@ -38,7 +38,7 @@ pub mod debug_window;
 
 const MULTIPLIER: Simd<Pos, 2> = Simd::from_array([85295.2, 110948.0]);
 
-pub static mut SOLVER : Option<Solver> = None;
+pub static mut SOLVERS : Option<ParallelList<Solver>> = None;
 pub static mut SUBURBS: Option<ParallelList<Suburb>> = None;
 pub static mut TRAFFIC_LIGHTS : Option<ParallelList<TrafficLight>> = None;
 pub static mut NODES : Option<ParallelList<Node>> = None;
@@ -100,8 +100,10 @@ pub fn get_nodes() -> &'static ParallelList<Node> {
     unsafe { NODES.as_ref().unwrap() }
 }
 #[inline]
-pub fn get_solver() -> &'static mut Solver<'static> {
-    unsafe { SOLVER.as_mut().unwrap() }
+pub fn get_solver(index : usize) -> &'static mut Solver<'static> {
+    unsafe {
+        SOLVERS.as_ref().unwrap().get_mut(index)
+    }
 }
 #[inline]
 pub fn get_node_tree() -> &'static mut QuadTree<'static, SuperCell<Node>> {
@@ -122,11 +124,33 @@ pub fn add_suburbs(suburbs : ParallelList<Suburb>) {
     }
 }
 #[inline]
-pub fn add_solver(solver: Solver<'static>) {
+pub fn add_solver(solver: Solver<'static>) -> usize {
     unsafe {
-        SOLVER = Some(solver);
+        match SOLVERS.as_mut() {  
+            None => {
+                let solvers = ParallelList::new(24);
+                solvers.insert(solver, 0);
+                SOLVERS = Some(solvers);
+                0
+            }
+            Some(solvers) => {
+                solvers.insert(solver, solvers.len);
+                solvers.len - 1
+            }
+        }
     }
 }
+pub fn remove_solver() {
+    unsafe {
+        match SOLVERS.as_mut() {
+            None => {}
+            Some(solvers) => {
+                solvers.len = solvers.len - 1
+            }
+        }
+    }
+}
+
 #[inline]
 pub fn build_node_tree() {
     unsafe {
@@ -186,6 +210,6 @@ pub fn compute(geometries : &[Suburb], traffic_lights: &[TrafficLight]) -> Vec<(
                     None => suburb = Some(x)
                 }
             });
-        (traffic_light.id as jint, suburb.map(|x1| {x1.id}).unwrap_or(0usize) as jint)
+        (traffic_light.id as jint, suburb.map(|x1| {x1.id}).unwrap_or(0usize as Index) as jint)
     }).collect()
 }

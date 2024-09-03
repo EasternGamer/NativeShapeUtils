@@ -15,6 +15,12 @@ pub enum NodeType {
     Normal = 0
 }
 
+pub enum SearchMethod {
+    FASTEST,
+    SHORTEST,
+    AVOID
+}
+
 const AT_TRAFFIC_LIGHT_THRESHOLD: Pos = 25f64 as Pos;
 const NEAR_TRAFFIC_LIGHT_THRESHOLD: Pos = 100f64 as Pos;
 
