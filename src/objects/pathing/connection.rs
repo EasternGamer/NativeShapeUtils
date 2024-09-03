@@ -1,8 +1,8 @@
-use crate::types::Cost;
+use crate::types::{Cost, Index};
 
 #[derive(Clone)]
 pub struct Connection {
-    pub index : u32,
+    pub index : Index,
     pub cost : Cost
 }
 

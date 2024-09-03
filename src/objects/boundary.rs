@@ -1,6 +1,7 @@
 use std::simd::Simd;
 use std::fmt::{Display, Formatter};
 use std::simd::cmp::SimdPartialOrd;
+use std::simd::prelude::SimdFloat;
 use crate::types::Pos;
 
 pub struct Boundary {
@@ -16,6 +17,12 @@ impl Boundary {
     #[inline]
     pub fn does_overlap(&self, other : &Boundary) -> bool {
         self.corner_min.simd_le(other.corner_max).all() && self.corner_max.simd_ge(other.corner_min).all()
+    }
+
+    #[inline]
+    pub fn area(&self) -> Pos {
+        let dimensions = self.corner_max - self.corner_min;
+        dimensions.reduce_product()
     }
 }
 

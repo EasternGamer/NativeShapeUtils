@@ -1,9 +1,7 @@
 use std::simd::Simd;
-use std::sync::Arc;
 use std::thread::{sleep, spawn};
 use std::time::Duration;
 
-use crossbeam::atomic::AtomicCell;
 use kiss3d::camera::{Camera, FirstPerson};
 use kiss3d::event::{Action, Key};
 use kiss3d::nalgebra::{Point2, Point3, Translation3};
@@ -186,6 +184,20 @@ fn draw_tree<T : Positional>(window: &mut Window, tree: &QuadTree<T>) {
     }
 }
 
+pub fn start_search() {
+    spawn(|| {
+        let mut timer = StopWatch::start();
+        loop {
+            get_solver().compute_pre_find();
+            sleep(Duration::from_millis(16));
+            if get_solver().fully_searched() {
+                timer.print_prefixed("Thread");
+                break;
+            }
+        }
+    });
+}
+
 pub fn start_window() {
     let mut timer = StopWatch::start();
     let mut camera = FirstPerson::new_with_frustrum(70f32, 0.0001, 1000f32, Point3::new(0f32, 0f32, 0f32), Point3::new(1f32, 0f32, 0f32));
@@ -208,28 +220,7 @@ pub fn start_window() {
     let mut display_tree = false;
     let mut key_pressed = false;
     
-    let found = Arc::new(AtomicCell::new(false));
-    let threaded_found = found.clone();
-    let closed = Arc::new(AtomicCell::new(false));
-    let threaded_closed = closed.clone();
     timer.disable();
-    let thread = spawn(move || unsafe {
-        let mut timer = StopWatch::start();
-        loop {
-            get_solver().compute_pre_find();
-            sleep(Duration::from_millis(16));
-            if *threaded_closed.as_ptr().as_mut().unwrap() {
-                break;
-            }
-            if get_solver().fully_searched() {
-                timer.print_prefixed("Thread");
-                threaded_found.store(true);
-                sleep(Duration::from_secs(10));
-                get_solver().update_search(373729, 37887);
-                timer.reset();
-            }
-        }
-    });
     while window.render_with_camera(&mut camera) {
         timer.elapsed_store("Render Time");
         timer.print_prefixed("Window");
@@ -298,8 +289,4 @@ pub fn start_window() {
             }
         }
     }
-    unsafe {
-        *closed.as_ptr().as_mut().unwrap() = true;
-    }
-    thread.join().expect("TODO: panic message");
 }

@@ -8,9 +8,9 @@
 use std::time::Instant;
 
 use jni::sys::jint;
-
 use crate::lib::*;
 use crate::lib::debug_window::start_window;
+use crate::lib::debug_window::start_search;
 use crate::lib::objects::pathing::solver::Solver;
 use crate::lib::objects::util::stop_watch::StopWatch;
 use crate::loader::*;
@@ -45,12 +45,13 @@ pub fn computation() {
     stop_watch.print_prefixed("Rust Binding");
     println!("Rust Binding - Check Average: {nano_seconds_per_op} ns/op");
     println!("Rust Binding - Per Core Average: {per_core_average} ns/op");
+    add_solver(Solver::new(get_nodes().get_slice(), 373729, 37887, 100_000));
     build_node_tree();
     associate_traffic_lights_to_nodes();
-    add_solver(Solver::new(get_nodes().get_slice(), 373729, 37887, 100_000))
 }
 
 fn main() {
     computation();
+    start_search();
     start_window();
 }

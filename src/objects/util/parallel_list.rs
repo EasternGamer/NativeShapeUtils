@@ -5,14 +5,12 @@ use rayon::prelude::ParallelSliceMut;
 use crate::objects::util::super_cell::SuperCell;
 
 pub struct ParallelList<T> {
-    pub len : usize,
     pub data : SuperCell<Box<[MaybeUninit<SuperCell<T>>]>>
 }
 
 impl <T> ParallelList<T> {
     pub fn new(size : usize) -> Self {
         Self {
-            len : 0,
             data: SuperCell::new(Box::new_uninit_slice(size))
         }
     }

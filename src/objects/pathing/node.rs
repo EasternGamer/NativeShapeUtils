@@ -96,7 +96,7 @@ impl ByteConvertable for Node {
         unsafe {
             for index_c in 0..connected_indices_size {
                 tmp_indices[index_c] = MaybeUninit::new(Connection {
-                    index: read_i32(byte_array, &mut index) as u32,
+                    index: read_i32(byte_array, &mut index) as Index,
                     cost: read_f64(byte_array, &mut index) as Cost
                 });
             }

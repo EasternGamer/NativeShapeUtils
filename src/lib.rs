@@ -172,12 +172,20 @@ pub fn new_u8_slice(size: usize) -> Box<[u8]> {
 
 #[inline]
 pub fn compute(geometries : &[Suburb], traffic_lights: &[TrafficLight]) -> Vec<(jint, jint)> {
-    geometries
-        .par_iter()
-        .flat_map_iter(|geometry: &Suburb| {
-            traffic_lights.iter()
-                .filter(|traffic_light| geometry.is_inside(&traffic_light.position))
-                .map(|traffic_light: &TrafficLight| (traffic_light.id as jint, geometry.id as jint))
-        })
-        .collect()
+    traffic_lights.par_iter().map(|traffic_light| {
+        let mut suburb : Option<&Suburb> = None;
+        geometries.iter()
+            .filter(|geometry| geometry.is_inside(&traffic_light.position))
+            .for_each(|x| {
+                match suburb {  
+                    Some(other) => {
+                        if other.boundary.area() > x.boundary.area() {
+                            suburb = Some(x)
+                        }
+                    }
+                    None => suburb = Some(x)
+                }
+            });
+        (traffic_light.id as jint, suburb.map(|x1| {x1.id}).unwrap_or(0usize) as jint)
+    }).collect()
 }

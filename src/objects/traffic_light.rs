@@ -1,7 +1,7 @@
-use std::simd::Simd;
-use crate::loader::{read_f64, read_i32, skip_i32};
+use crate::loader::{read_f64, read_i32};
 use crate::traits::{ByteConvertable, Indexable, Positional};
 use crate::types::{Flag, Index, Pos};
+use std::simd::Simd;
 
 #[derive(Clone, Copy)]
 pub struct TrafficLight {
@@ -29,13 +29,13 @@ impl ByteConvertable for TrafficLight {
     fn from_bytes(byte_array: &[u8]) -> Self {
         let mut index = 0;
         let id = read_i32(byte_array, &mut index);
-        skip_i32(&mut index);
+        let flag = read_i32(byte_array, &mut index);
         let x = read_f64(byte_array, &mut index) as Pos;
         let y = read_f64(byte_array, &mut index) as Pos;
         Self {
             id : id as usize,
             position : Simd::from_array([x, y]),
-            flag : Flag::MAX
+            flag : flag as Flag
         }
     }
 }

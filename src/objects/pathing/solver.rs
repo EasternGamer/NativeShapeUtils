@@ -79,6 +79,7 @@ impl <'solver> Solver<'solver>  {
         self.start_node = &self.nodes[start_node_index];
         self.end_node = &self.nodes[end_node_index];
         self.reset();
+        println!("Finding search between {start_node_index} to {end_node_index}");
     }
     #[inline(always)]
     pub fn fully_searched(&self) -> bool {
@@ -106,38 +107,29 @@ impl <'solver> Solver<'solver>  {
     }
 
     fn compute_pairing_direct(&mut self) {
-        let end_node_index = self.end_node.get().index() as u32;
-        let time_in_hour = (Utc::now().time().minute() as f64/60f64) as Cost;
         if !self.end_node.get_mut().has_visited() {
+            let end_node_index = self.end_node.get().index() as Index;
             let mut visited = Vec::new();
             let mut found = false;
             self.direct_heap.insert(self.start_node, calculate_weight_optimal(self.start_node.get(), self.end_node.get()) as Cost);
             while !self.direct_heap.is_empty() && !found {
                 let current_node = self.direct_heap.delete_min().expect("Heap was not empty, but had nothing to pop.").0.get_mut();
                 let local_cost = current_node.get_cost();
-                let time_offset_cost = time_in_hour + local_cost;
                 let new_node_length = current_node.get_connection_len() + 1;
                 let previous_index = current_node.index();
                 for connection in current_node.get_connections() {
                     let super_connection = &self.nodes[connection.index as usize];
                     let connected_node = super_connection.get_mut();
-                    let connection_cost =
-                        if self.avoid_traffic_lights {
-                            match current_node.node_type {
-                                NodeType::Normal => connection.cost,
-                                NodeType::NearTrafficLight => connection.cost * (10f64 as Cost) * Self::is_load_shedding(current_node.flag, time_offset_cost),
-                                NodeType::AtTrafficLight => connection.cost * (20f64 as Cost) * Self::is_load_shedding(current_node.flag, time_offset_cost)
-                            }
-                        } else {
-                            connection.cost
-                        };
-                    let new_local_cost = local_cost + connection_cost;
+                    let new_local_cost = local_cost + connection.cost;
                     found = connection.index == end_node_index;
                     if !found && !connected_node.has_visited() {
                         visited.push(super_connection);
                     }
                     if connected_node.check_updated_and_save(new_local_cost, previous_index as u32, new_node_length) && !found {
                         self.direct_heap.insert(super_connection, calculate_weight_optimal(connected_node, self.end_node.get()) as Cost);
+                    }
+                    if found {
+                        break;
                     }
                 }
             }
@@ -149,7 +141,7 @@ impl <'solver> Solver<'solver>  {
     }
 
     fn compute_radix(&mut self) {
-        let end_node_index = self.end_node.get().index() as u32;
+        let end_node_index = self.end_node.get().index() as Index;
         let time_in_hour = (Utc::now().time().minute() as f64/60f64) as Cost;
         while !self.heap.is_empty() && self.current_iteration < self.max_iterations {
             self.current_iteration += 1;
@@ -191,6 +183,14 @@ impl <'solver> Solver<'solver>  {
         }
     }
     
+    pub fn get_start_node_index(&self) -> usize {
+        self.start_node.get().index as usize
+    }
+
+    pub fn get_end_node_index(&self) -> usize {
+        self.end_node.get().index as usize
+    }
+    
     pub fn get_path_as_indices(&self) -> &Option<(Box<[Index]>, Cost)> {
         &self.path
     }
@@ -208,7 +208,10 @@ impl <'solver> Solver<'solver>  {
         self.merge();
         self.current_iteration = 0;
         if self.end_node.get_mut().has_visited() {
-            self.path = Some((self.backtrack(), self.end_node.get_mut().get_cost()))
+            let path = self.backtrack();
+            let path_len = path.len();
+            self.path = Some((path, self.end_node.get_mut().get_cost()));
+            println!("Found path of length {path_len}");
         }
     }
 
@@ -225,7 +228,7 @@ impl <'solver> Solver<'solver>  {
         let length = self.end_node.get_mut().get_connection_len() as usize;
         let mut path = Vec::with_capacity(length);
         let mut previous_node = self.end_node;
-        for _ in 0..(length-1) {
+        for _ in 0..length {
             path.push(previous_node.get().index);
             let previous_index = previous_node.get_mut().get_previous();
             if previous_index != u32::MAX {
