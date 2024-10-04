@@ -64,6 +64,7 @@ pub extern "system" fn Java_io_github_easterngamer_ffi_FFISolver_findPath<'l>(mu
     let path_class = env.find_class("io/github/easterngamer/ffi/FFISolver$Path").unwrap();
     let init_method = env.get_method_id(&path_class, "<init>", "([IDD)V").unwrap();
     let solver = get_solver(index as usize);
+    
     match (closest_to_start.join().expect("Unable to find closest start"), closest_to_end.join().expect("Unable to find closest end")) {
         (Some(start), Some(end)) => {
             solver.update_search(start, end);
