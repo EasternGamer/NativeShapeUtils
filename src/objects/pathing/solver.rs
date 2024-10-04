@@ -230,9 +230,9 @@ impl <'solver> Solver<'solver>  {
         self.current_iteration = 0;
         let end_index = self.end_node;
         if self.has_visited(end_index) {
-            let (path, distance) = self.backtrack();
+            let (path, distance, time) = self.backtrack();
             let path_len = path.len();
-            self.path = Some((path, self.get_cost(end_index), distance));
+            self.path = Some((path, time, distance));
             println!("Found path of length {path_len}");
         }
         println!("No Path Found");
@@ -242,15 +242,25 @@ impl <'solver> Solver<'solver>  {
         self.previous_distances[index as usize]
     }
     
-    pub fn backtrack(&self) -> (Box<[Index]>, Cost) {
+    pub fn backtrack(&self) -> (Box<[Index]>, Cost, Cost) {
         let length = self.get_connection_len(self.end_node) as usize;
         let mut path = Vec::with_capacity(length);
         let mut previous_node = self.end_node;
         let mut distance = 0.0;
+        let mut time = 0.0;
         for _ in 0..length {
             path.push(previous_node);
             let previous_index = self.get_previous(previous_node);
-            distance += self.get_distance(previous_index);
+            let mut connection_cost = self.get_distance(previous_index);
+            let time_offset = self.get_cost(previous_index);
+            let node = self.nodes[previous_index as usize].get();
+            distance += connection_cost;
+            connection_cost /= (node.connections[0].speed as Cost);
+            time += match node.node_type {
+                NodeType::Normal => connection_cost,
+                NodeType::NearTrafficLight => connection_cost + connection_cost * (3 as Cost) * Self::is_load_shedding(node.flag, time_offset),
+                NodeType::AtTrafficLight => connection_cost + connection_cost * (5 as Cost) * Self::is_load_shedding(node.flag, time_offset)
+            };
             if previous_index != u32::MAX {
                 previous_node = previous_index as Index;
             } else {
@@ -258,7 +268,7 @@ impl <'solver> Solver<'solver>  {
             }
         }
         path.push(previous_node);
-        (path.into_boxed_slice(), distance)
+        (path.into_boxed_slice(), distance, time)
     }
 
     pub fn reset(&mut self) {
