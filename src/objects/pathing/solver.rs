@@ -140,7 +140,7 @@ impl <'solver> Solver<'solver>  {
     }
     #[inline(always)]
     pub fn fully_searched(&self) -> bool {
-        self.heap.is_empty()
+        self.heap.is_empty() || self.has_visited(self.end_node)
     }
 
     fn merge(&mut self) {
