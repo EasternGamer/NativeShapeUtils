@@ -31,7 +31,7 @@ use crate::types::{Index, Pos};
 
 pub mod loader;
 pub mod types;
-pub mod ffi;
+pub mod java;
 pub mod traits;
 pub mod objects;
 pub mod debug_window;
