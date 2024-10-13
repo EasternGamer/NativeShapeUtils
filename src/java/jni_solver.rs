@@ -61,7 +61,7 @@ pub extern "system" fn Java_io_github_easterngamer_jni_JNISolver_findPath<'l>(mu
     let end_pos = Simd::from_array([destination_x as Pos, destination_y as Pos]);
     let closest_to_start = spawn(move || {get_closest_node(&start_pos)});
     let closest_to_end = spawn(move || {get_closest_node(&end_pos)});
-    let path_class = env.find_class("io/github/easterngamer/ffi/JNISolver$Path").unwrap();
+    let path_class = env.find_class("io/github/easterngamer/jni/JNISolver$Path").unwrap();
     let init_method = env.get_method_id(&path_class, "<init>", "([IDD)V").unwrap();
     let solver = get_solver(index as usize);
     
