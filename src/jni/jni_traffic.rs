@@ -15,20 +15,20 @@ use crate::types::Pos;
 use crate::{add_suburbs, add_traffic_lights, build_traffic_light_tree, compute, distance, get_suburbs, get_traffic_light_tree, get_traffic_lights};
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_sendTrafficLights<'l>(env: JNIEnv<'l>, _class: JClass<'l>, data : JByteArray<'l>) {
+pub extern "system" fn Java_io_github_easterngamer_jni_JNITraffic_sendTrafficLights<'l>(env: JNIEnv<'l>, _class: JClass<'l>, data : JByteArray<'l>) {
     let bytes = env.convert_byte_array(&data).expect("Failed to load byte array for traffic lights");
     add_traffic_lights(load_from_bytes(bytes.as_slice()));
     build_traffic_light_tree();
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_sendSuburbs<'l> (env: JNIEnv<'l>, _class: JClass<'l>, data : JByteArray<'l>) {
+pub extern "system" fn Java_io_github_easterngamer_jni_JNITraffic_sendSuburbs<'l> (env: JNIEnv<'l>, _class: JClass<'l>, data : JByteArray<'l>) {
     let bytes = env.convert_byte_array(&data).expect("Failed to load byte array for traffic lights");
     add_suburbs(load_from_bytes(bytes.as_slice()))
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_getSuburbsInBounds<'l>(env: JNIEnv<'l>, _class: JClass<'l>,
+pub extern "system" fn Java_io_github_easterngamer_jni_JNITraffic_getSuburbsInBounds<'l>(env: JNIEnv<'l>, _class: JClass<'l>,
                                                                                                  max_x : jdouble, min_x : jdouble,
                                                                                                  max_y : jdouble, min_y : jdouble,
                                                                                                  limit : jint, debug : jboolean) -> jintArray {
@@ -66,7 +66,7 @@ pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_getSuburbsInBo
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_getTrafficLightsInBounds<'l>(_env: JNIEnv<'l>, _class: JClass<'l>,
+pub extern "system" fn Java_io_github_easterngamer_jni_JNITraffic_getTrafficLightsInBounds<'l>(_env: JNIEnv<'l>, _class: JClass<'l>,
                                                                                                  max_x : jdouble, min_x : jdouble,
                                                                                                  max_y : jdouble, min_y : jdouble,
                                                                                                  limit : jint, debug : jboolean) -> jintArray {
@@ -104,7 +104,7 @@ pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_getTrafficLigh
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_getNearestTrafficLight<'l>(_env: JNIEnv<'l>, _class: JClass<'l>,
+pub extern "system" fn Java_io_github_easterngamer_jni_JNITraffic_getNearestTrafficLight<'l>(_env: JNIEnv<'l>, _class: JClass<'l>,
                                                                                                x : jdouble, y : jdouble,
                                                                                                debug : jboolean) -> jint {
     let start_time = Instant::now();
@@ -138,7 +138,7 @@ pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_getNearestTraf
 }
 
 #[no_mangle]
-pub extern "system" fn Java_io_github_easterngamer_ffi_FFITraffic_compute<'l>(mut env: JNIEnv<'l>, class: JClass<'l>, debug: jboolean) {
+pub extern "system" fn Java_io_github_easterngamer_jni_JNITraffic_compute<'l>(mut env: JNIEnv<'l>, class: JClass<'l>, debug: jboolean) {
     println!("Computing...");
     let start_time_pre = Instant::now();
 
